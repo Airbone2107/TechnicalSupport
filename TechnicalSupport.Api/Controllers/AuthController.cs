@@ -1,11 +1,13 @@
-using AutoMapper;
-using Microsoft.AspNetCore.Identity;
+﻿using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.IdentityModel.Tokens;
+using Swashbuckle.AspNetCore.Filters;
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 using System.Text;
 using TechnicalSupport.Api.Common;
+using TechnicalSupport.Api.SwaggerExamples.Authentication;
+using TechnicalSupport.Application.Configurations;
 using TechnicalSupport.Application.Features.Authentication.DTOs;
 using TechnicalSupport.Domain.Entities;
 
@@ -17,22 +19,22 @@ namespace TechnicalSupport.Api.Controllers
     {
         private readonly UserManager<ApplicationUser> _userManager;
         private readonly SignInManager<ApplicationUser> _signInManager;
-        private readonly IConfiguration _configuration;
-        private readonly IMapper _mapper;
+        private readonly JwtSettings _jwtSettings;
 
+        // === SỬA LỖI Ở ĐÂY ===
+        // Inject trực tiếp JwtSettings thay vì IOptions<JwtSettings>
         public AuthController(
             UserManager<ApplicationUser> userManager,
             SignInManager<ApplicationUser> signInManager,
-            IConfiguration configuration,
-            IMapper mapper)
+            JwtSettings jwtSettings) // Sửa đổi ở dòng này
         {
             _userManager = userManager;
             _signInManager = signInManager;
-            _configuration = configuration;
-            _mapper = mapper;
+            _jwtSettings = jwtSettings; // Sửa đổi ở dòng này
         }
 
         [HttpPost("register")]
+        [SwaggerRequestExample(typeof(RegisterModel), typeof(RegisterModelExample))]
         public async Task<IActionResult> Register([FromBody] RegisterModel model)
         {
             var user = new ApplicationUser
@@ -49,13 +51,14 @@ namespace TechnicalSupport.Api.Controllers
                 var errors = result.Errors.Select(e => e.Description).ToList();
                 return BadRequest(ApiResponse.Fail("User registration failed.", errors));
             }
-            
+
             await _userManager.AddToRoleAsync(user, model.Role ?? "Client");
 
             return Ok(ApiResponse.Success<object>(null, "User registered successfully."));
         }
 
         [HttpPost("login")]
+        [SwaggerRequestExample(typeof(LoginModel), typeof(LoginModelExample))]
         public async Task<IActionResult> Login([FromBody] LoginModel model)
         {
             var user = await _userManager.FindByEmailAsync(model.Email);
@@ -74,7 +77,7 @@ namespace TechnicalSupport.Api.Controllers
             var token = GenerateJwtToken(user, roles);
 
             var response = new AuthResponseDto { Token = token };
-            
+
             return Ok(ApiResponse.Success(response, "Login successful."));
         }
 
@@ -93,12 +96,12 @@ namespace TechnicalSupport.Api.Controllers
                 claims.Add(new Claim(ClaimTypes.Role, role));
             }
 
-            var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(_configuration["Jwt:Key"]));
+            var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(_jwtSettings.Key));
             var creds = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);
 
             var token = new JwtSecurityToken(
-                issuer: _configuration["Jwt:Issuer"],
-                audience: _configuration["Jwt:Audience"],
+                issuer: _jwtSettings.Issuer,
+                audience: _jwtSettings.Audience,
                 claims: claims,
                 expires: DateTime.UtcNow.AddHours(12),
                 signingCredentials: creds
@@ -107,4 +110,4 @@ namespace TechnicalSupport.Api.Controllers
             return new JwtSecurityTokenHandler().WriteToken(token);
         }
     }
-} 
+}
