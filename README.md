@@ -34,7 +34,7 @@ Thực hiện theo các bước sau để thiết lập và chạy project trên
 Mở terminal (Command Prompt, PowerShell, hoặc Git Bash) và chạy lệnh sau để tải project về máy:
 
 ```bash
-git clone https://github.com/your-username/TechnicalSupport.git
+git clone https://github.com/Airbone2107/TechnicalSupport.git
 cd TechnicalSupport
 ```
 *(Lưu ý: Thay `https://github.com/your-username/TechnicalSupport.git` bằng URL thực tế của repository của bạn).*
