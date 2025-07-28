@@ -14,7 +14,7 @@ using TechnicalSupport.Domain.Entities;
 namespace TechnicalSupport.Api.Controllers
 {
     [ApiController]
-    [Route("api/[controller]")]
+    [Route("[controller]")]
     public class AuthController : ControllerBase
     {
         private readonly UserManager<ApplicationUser> _userManager;

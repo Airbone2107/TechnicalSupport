@@ -11,7 +11,7 @@ using TechnicalSupport.Application.Interfaces;
 namespace TechnicalSupport.Api.Controllers
 {
     [ApiController]
-    [Route("api/[controller]")]
+    [Route("[controller]")]
     [Authorize]
     public class TicketsController : ControllerBase
     {

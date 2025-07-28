@@ -47,8 +47,8 @@ Các cấu hình chính cho môi trường phát triển nằm trong file `Techn
 
 Dự án này tích hợp một **"chế độ mock"** cho phép bạn kiểm thử các endpoint của Ticket mà không cần tương tác với cơ sở dữ liệu thật.
 
--   **Cách hoạt động**: Khi bật, các yêu cầu đến `api/Tickets` sẽ được xử lý bởi một dịch vụ giả (mock service), trả về dữ liệu mẫu mà không ghi, sửa, hay xóa bất cứ thứ gì trong DB.
--   **Lưu ý**: Các endpoint xác thực (`api/Auth`) **không** bị ảnh hưởng bởi chế độ này và vẫn hoạt động với database thật để bạn có thể đăng nhập và nhận token JWT hợp lệ.
+-   **Cách hoạt động**: Khi bật, các yêu cầu đến `/Tickets` sẽ được xử lý bởi một dịch vụ giả (mock service), trả về dữ liệu mẫu mà không ghi, sửa, hay xóa bất cứ thứ gì trong DB.
+-   **Lưu ý**: Các endpoint xác thực (`/Auth`) **không** bị ảnh hưởng bởi chế độ này và vẫn hoạt động với database thật để bạn có thể đăng nhập và nhận token JWT hợp lệ.
 
 Để bật/tắt chế độ này, hãy mở file `TechnicalSupport.Api/appsettings.Development.json` và thay đổi giá trị của `EnableMockMode`:
 
@@ -129,7 +129,7 @@ Sau khi ứng dụng đã chạy, bạn có thể truy cập giao diện Swagger
     *   Bạn có thể chọn các kịch bản khác nhau từ dropdown "Examples".
 
 3.  **Đăng nhập và Lấy Token:**
-    *   Tìm đến `POST /api/Auth/login`, nhấn "Try it out".
+    *   Tìm đến `POST /Auth/login`, nhấn "Try it out".
     *   Ví dụ về thông tin đăng nhập sẽ được điền sẵn (tài khoản `client@example.com`).
     *   Nhấn "Execute". Phản hồi thành công sẽ chứa một JWT token.
 
@@ -142,7 +142,7 @@ Sau khi ứng dụng đã chạy, bạn có thể truy cập giao diện Swagger
     *   Nhấn "Authorize", sau đó "Close".
 
 6.  **Kiểm thử các Endpoint được bảo vệ:**
-    *   Bây giờ bạn đã được xác thực. Hãy thử một endpoint cần đăng nhập, ví dụ `GET /api/Tickets`.
+    *   Bây giờ bạn đã được xác thực. Hãy thử một endpoint cần đăng nhập, ví dụ `GET /Tickets`.
     *   Nhấn "Try it out", sau đó "Execute".
     *   Bạn sẽ thấy danh sách các ticket. Nếu đang ở **Mock Mode**, danh sách này là dữ liệu giả. Nếu không, đó là dữ liệu từ database.
 
@@ -154,4 +154,3 @@ Khi **không** ở chế độ mock (`"EnableMockMode": false`) và ứng dụng
 -   **Technician:** `tech@example.com`
 
 Bạn có thể dùng các tài khoản này để đăng nhập và kiểm thử các vai trò khác nhau mà không cần đăng ký.
-```
