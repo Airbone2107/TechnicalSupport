@@ -168,6 +168,15 @@ else
     Console.WriteLine(">>>> API is running in LIVE mode. Database WILL be affected by ticket operations. <<<<");
 }
 
+// Thêm dòng này cùng với các đăng ký service khác
+builder.Services.AddScoped<IAttachmentService, AttachmentService>();
+
+// Thêm dòng này cùng với các đăng ký service khác
+builder.Services.AddScoped<IAdminService, AdminService>();
+
+// TechnicalSupport.Api/Program.cs
+builder.Services.AddScoped<IGroupService, GroupService>();
+
 var app = builder.Build();
 
 // TỰ ĐỘNG MIGRATE VÀ SEED DATABASE KHI CHẠY Ở MÔI TRƯỜNG DEVELOPMENT
@@ -193,6 +202,7 @@ if (app.Environment.IsDevelopment() && !apiSettings.EnableMockMode)
         }
     }
 }
+
 
 // Configure the HTTP request pipeline.
 if (app.Environment.IsDevelopment())

@@ -31,7 +31,7 @@ namespace TechnicalSupport.Infrastructure.Services
             _mapper = mapper;
         }
 
-        public async Task<PagedResult<TicketDto>> GetTicketsAsync(PaginationParams paginationParams, string userId)
+        public async Task<PagedResult<TicketDto>> GetTicketsAsync(TicketFilterParams filterParams, string userId)
         {
             var user = await _userManager.FindByIdAsync(userId);
             var roles = await _userManager.GetRolesAsync(user);
@@ -42,13 +42,38 @@ namespace TechnicalSupport.Infrastructure.Services
                 .Include(t => t.Assignee)
                 .OrderByDescending(t => t.UpdatedAt);
 
+            // Logic phân quyền ban đầu
             if (roles.Contains("Client"))
                 query = query.Where(t => t.CustomerId == userId);
             else if (roles.Contains("Technician"))
                 query = query.Where(t => t.AssigneeId == userId || t.AssigneeId == null);
 
-            var pagedTicketsEntities = await query.ToPagedResultAsync(paginationParams.PageNumber, paginationParams.PageSize);
+            // === THÊM LOGIC LỌC MỚI ===
+            if (filterParams.StatusId.HasValue)
+            {
+                query = query.Where(t => t.StatusId == filterParams.StatusId.Value);
+            }
 
+            if (!string.IsNullOrEmpty(filterParams.Priority))
+            {
+                query = query.Where(t => t.Priority == filterParams.Priority);
+            }
+
+            if (!string.IsNullOrEmpty(filterParams.AssigneeId))
+            {
+                query = query.Where(t => t.AssigneeId == filterParams.AssigneeId);
+            }
+
+            if (!string.IsNullOrEmpty(filterParams.SearchQuery))
+            {
+                var searchQuery = filterParams.SearchQuery.ToLower();
+                query = query.Where(t =>
+                    t.Title.ToLower().Contains(searchQuery) ||
+                    t.Description.ToLower().Contains(searchQuery));
+            }
+            // === KẾT THÚC LOGIC LỌC MỚI ===
+
+            var pagedTicketsEntities = await query.ToPagedResultAsync(filterParams.PageNumber, filterParams.PageSize);
             var ticketDtos = _mapper.Map<List<TicketDto>>(pagedTicketsEntities.Items);
 
             return new PagedResult<TicketDto>(ticketDtos, pagedTicketsEntities.TotalCount, pagedTicketsEntities.PageNumber, pagedTicketsEntities.PageSize);
@@ -141,6 +166,38 @@ namespace TechnicalSupport.Infrastructure.Services
             await _hubContext.Clients.Group(ticketId.ToString()).SendAsync("ReceiveNewMessage", commentDto);
 
             return commentDto;
+        }
+
+        // Task 1.1
+        public async Task<TicketDto?> AssignTicketAsync(int ticketId, AssignTicketModel model, string currentUserId)
+        {
+            var ticket = await _context.Tickets
+                .Include(t => t.Status)
+                .Include(t => t.Customer)
+                .FirstOrDefaultAsync(t => t.TicketId == ticketId);
+
+            if (ticket == null)
+            {
+                return null; // Controller sẽ xử lý trả về 404 Not Found
+            }
+
+            var assignee = await _userManager.FindByIdAsync(model.AssigneeId);
+            if (assignee == null || !await _userManager.IsInRoleAsync(assignee, "Technician"))
+            {
+                // Có thể throw một exception cụ thể, nhưng trả về null đơn giản hơn cho junior
+                // Controller sẽ cần kiểm tra và trả về lỗi phù hợp (ví dụ: Bad Request)
+                return null; // Tạm thời trả về null, có thể cải thiện sau
+            }
+
+            ticket.AssigneeId = model.AssigneeId;
+            ticket.UpdatedAt = DateTime.UtcNow;
+
+            await _context.SaveChangesAsync();
+
+            // Tải lại thông tin Assignee để trả về DTO đầy đủ
+            await _context.Entry(ticket).Reference(t => t.Assignee).LoadAsync();
+
+            return _mapper.Map<TicketDto>(ticket);
         }
     }
 }

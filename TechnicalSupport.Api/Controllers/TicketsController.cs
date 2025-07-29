@@ -1,4 +1,4 @@
-using Microsoft.AspNetCore.Authorization;
+﻿using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Swashbuckle.AspNetCore.Filters;
 using System.Security.Claims;
@@ -23,10 +23,10 @@ namespace TechnicalSupport.Api.Controllers
         }
 
         [HttpGet]
-        public async Task<IActionResult> GetTickets([FromQuery] PaginationParams paginationParams)
+        public async Task<IActionResult> GetTickets([FromQuery] TicketFilterParams filterParams)
         {
             var userId = User.FindFirstValue(ClaimTypes.NameIdentifier);
-            var pagedResultDto = await _ticketService.GetTicketsAsync(paginationParams, userId!);
+            var pagedResultDto = await _ticketService.GetTicketsAsync(filterParams, userId!);
             return Ok(ApiResponse.Success(pagedResultDto));
         }
 
@@ -75,6 +75,24 @@ namespace TechnicalSupport.Api.Controllers
             }
 
             return Ok(ApiResponse.Success(commentDto, "Comment added successfully."));
+        }
+
+        // Trong class TicketsController, thêm method sau:
+        [HttpPut("{id}/assign")]
+        [Authorize(Roles = "Admin,Technician")]
+        public async Task<IActionResult> AssignTicket(int id, [FromBody] AssignTicketModel model)
+        {
+            var currentUserId = User.FindFirstValue(ClaimTypes.NameIdentifier);
+            // Lưu ý: currentUserId được truyền vào service để có thể mở rộng logic phân quyền sau này
+            var ticketDto = await _ticketService.AssignTicketAsync(id, model, currentUserId!);
+
+            if (ticketDto == null)
+            {
+                // Điều này có thể do không tìm thấy ticket hoặc assignee không hợp lệ.
+                // Trả về NotFound là một cách xử lý chung và an toàn.
+                return NotFound(ApiResponse.Fail($"Ticket with Id {id} not found or invalid assignee."));
+            }
+            return Ok(ApiResponse.Success(ticketDto, "Ticket assigned successfully."));
         }
     }
 } 

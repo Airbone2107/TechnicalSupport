@@ -127,5 +127,15 @@ namespace TechnicalSupport.Api.Services
                 }
             };
         }
+
+        public Task<TicketDto?> AssignTicketAsync(int ticketId, AssignTicketModel model, string currentUserId)
+        {
+            throw new NotImplementedException();
+        }
+
+        public Task<PagedResult<TicketDto>> GetTicketsAsync(TicketFilterParams filterParams, string userId)
+        {
+            throw new NotImplementedException();
+        }
     }
 } 

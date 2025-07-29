@@ -1,4 +1,4 @@
-using Microsoft.AspNetCore.Identity;
+﻿using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using TechnicalSupport.Domain.Entities;
 
@@ -33,6 +33,17 @@ namespace TechnicalSupport.Infrastructure.Persistence.Seed
             // Seed Users, Tickets, and Comments only if there are no users yet.
             if (!await userManager.Users.AnyAsync())
             {
+                // Admin User -- THÊM MỚI
+                var adminUser = new ApplicationUser
+                {
+                    UserName = "admin@example.com",
+                    Email = "admin@example.com",
+                    DisplayName = "Admin User",
+                    EmailConfirmed = true
+                };
+                await userManager.CreateAsync(adminUser, "Password123!");
+                await userManager.AddToRoleAsync(adminUser, "Admin");
+
                 // Client User
                 var clientUser = new ApplicationUser
                 {
