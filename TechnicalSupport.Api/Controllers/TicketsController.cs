@@ -23,10 +23,10 @@ namespace TechnicalSupport.Api.Controllers
         }
 
         [HttpGet]
-        public async Task<IActionResult> GetTickets([FromQuery] PaginationParams paginationParams)
+        public async Task<IActionResult> GetTickets([FromQuery] TicketFilterParams filterParams)
         {
             var userId = User.FindFirstValue(ClaimTypes.NameIdentifier);
-            var pagedResultDto = await _ticketService.GetTicketsAsync(paginationParams, userId!);
+            var pagedResultDto = await _ticketService.GetTicketsAsync(filterParams, userId!);
             return Ok(ApiResponse.Success(pagedResultDto));
         }
 
@@ -75,6 +75,26 @@ namespace TechnicalSupport.Api.Controllers
             }
 
             return Ok(ApiResponse.Success(commentDto, "Comment added successfully."));
+        }
+
+        [HttpPut("{id}/assign")]
+        [Authorize(Roles = "Admin,Technician")]
+        public async Task<IActionResult> AssignTicket(int id, [FromBody] AssignTicketModel model)
+        {
+            var currentUserId = User.FindFirstValue(ClaimTypes.NameIdentifier);
+            try
+            {
+                var ticketDto = await _ticketService.AssignTicketAsync(id, model, currentUserId!);
+                if (ticketDto == null)
+                {
+                    return NotFound(ApiResponse.Fail($"Ticket with Id {id} or Assignee with Id {model.AssigneeId} not found."));
+                }
+                return Ok(ApiResponse.Success(ticketDto, "Ticket assigned successfully."));
+            }
+            catch (InvalidOperationException ex)
+            {
+                return BadRequest(ApiResponse.Fail(ex.Message));
+            }
         }
     }
 } 

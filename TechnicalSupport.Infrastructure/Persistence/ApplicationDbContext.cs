@@ -48,7 +48,7 @@ namespace TechnicalSupport.Infrastructure.Persistence
             // Configure Comment relationships
             builder.Entity<Comment>()
                 .HasOne(c => c.Ticket)
-                .WithMany()
+                .WithMany(t => t.Comments) // Sửa đổi ở đây
                 .HasForeignKey(c => c.TicketId)
                 .OnDelete(DeleteBehavior.Cascade);
 
@@ -61,9 +61,9 @@ namespace TechnicalSupport.Infrastructure.Persistence
             // Configure Attachment relationships
             builder.Entity<Attachment>()
                 .HasOne(a => a.Ticket)
-                .WithMany()
+                .WithMany(t => t.Attachments) // Sửa đổi ở đây
                 .HasForeignKey(a => a.TicketId)
-                .OnDelete(DeleteBehavior.Restrict); 
+                .OnDelete(DeleteBehavior.Cascade); // Thay đổi thành Cascade để khi xóa ticket thì xóa attachment
 
             builder.Entity<Attachment>()
                 .HasOne(a => a.Comment)

@@ -482,9 +482,9 @@ namespace TechnicalSupport.Infrastructure.Migrations
                         .OnDelete(DeleteBehavior.SetNull);
 
                     b.HasOne("TechnicalSupport.Domain.Entities.Ticket", "Ticket")
-                        .WithMany()
+                        .WithMany("Attachments")
                         .HasForeignKey("TicketId")
-                        .OnDelete(DeleteBehavior.Restrict)
+                        .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
 
                     b.HasOne("TechnicalSupport.Domain.Entities.ApplicationUser", "UploadedBy")
@@ -503,7 +503,7 @@ namespace TechnicalSupport.Infrastructure.Migrations
             modelBuilder.Entity("TechnicalSupport.Domain.Entities.Comment", b =>
                 {
                     b.HasOne("TechnicalSupport.Domain.Entities.Ticket", "Ticket")
-                        .WithMany()
+                        .WithMany("Comments")
                         .HasForeignKey("TicketId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
@@ -569,6 +569,13 @@ namespace TechnicalSupport.Infrastructure.Migrations
                     b.Navigation("Group");
 
                     b.Navigation("Status");
+                });
+
+            modelBuilder.Entity("TechnicalSupport.Domain.Entities.Ticket", b =>
+                {
+                    b.Navigation("Attachments");
+
+                    b.Navigation("Comments");
                 });
 #pragma warning restore 612, 618
         }

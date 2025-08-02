@@ -1,5 +1,6 @@
 using AutoMapper;
 using Microsoft.AspNetCore.Identity;
+using System.Linq;
 using TechnicalSupport.Application.Common;
 using TechnicalSupport.Application.Features.Tickets.DTOs;
 using TechnicalSupport.Application.Interfaces;
@@ -52,13 +53,38 @@ namespace TechnicalSupport.Api.Services
             return Task.FromResult<TicketDto?>(ticket);
         }
 
-        public Task<PagedResult<TicketDto>> GetTicketsAsync(PaginationParams paginationParams, string userId)
+        public Task<PagedResult<TicketDto>> GetTicketsAsync(TicketFilterParams filterParams, string userId)
         {
+            IEnumerable<TicketDto> filteredTickets = _mockTickets;
+
+            if (filterParams.StatusId.HasValue)
+            {
+                filteredTickets = filteredTickets.Where(t => t.Status.StatusId == filterParams.StatusId.Value);
+            }
+            if (!string.IsNullOrEmpty(filterParams.Priority))
+            {
+                filteredTickets = filteredTickets.Where(t => t.Priority.Equals(filterParams.Priority, StringComparison.OrdinalIgnoreCase));
+            }
+            if (!string.IsNullOrEmpty(filterParams.AssigneeId))
+            {
+                filteredTickets = filteredTickets.Where(t => t.Assignee?.Id == filterParams.AssigneeId);
+            }
+            if (!string.IsNullOrEmpty(filterParams.SearchQuery))
+            {
+                var searchTerm = filterParams.SearchQuery.ToLower();
+                filteredTickets = filteredTickets.Where(t => t.Title.ToLower().Contains(searchTerm) || t.Description.ToLower().Contains(searchTerm));
+            }
+            
+            var items = filteredTickets
+                .Skip((filterParams.PageNumber - 1) * filterParams.PageSize)
+                .Take(filterParams.PageSize)
+                .ToList();
+                
             var pagedResult = new PagedResult<TicketDto>(
-                _mockTickets,
-                _mockTickets.Count,
-                paginationParams.PageNumber,
-                paginationParams.PageSize);
+                items,
+                filteredTickets.Count(),
+                filterParams.PageNumber,
+                filterParams.PageSize);
 
             return Task.FromResult(pagedResult);
         }
@@ -92,6 +118,21 @@ namespace TechnicalSupport.Api.Services
             };
 
             return Task.FromResult<CommentDto?>(newComment);
+        }
+
+        public Task<TicketDto?> AssignTicketAsync(int ticketId, AssignTicketModel model, string currentUserId)
+        {
+            var ticket = _mockTickets.FirstOrDefault(t => t.TicketId == ticketId);
+            if (ticket == null)
+            {
+                return Task.FromResult<TicketDto?>(null);
+            }
+
+            var mockAssignee = new UserDto { Id = model.AssigneeId, DisplayName = "Mock Assignee", Email = "assignee@example.com" };
+            ticket.Assignee = mockAssignee;
+            ticket.UpdatedAt = DateTime.UtcNow;
+
+            return Task.FromResult<TicketDto?>(ticket);
         }
 
         private List<TicketDto> CreateMockData()

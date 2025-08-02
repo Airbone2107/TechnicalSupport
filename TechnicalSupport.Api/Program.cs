@@ -35,6 +35,10 @@ var apiSettings = new ApiSettings();
 builder.Configuration.Bind(nameof(ApiSettings), apiSettings);
 builder.Services.AddSingleton(apiSettings);
 
+var attachmentSettings = new AttachmentSettings();
+builder.Configuration.Bind(nameof(AttachmentSettings), attachmentSettings);
+builder.Services.AddSingleton(attachmentSettings);
+
 // Add services to the container.
 builder.Services.AddControllers(options =>
 {
@@ -159,12 +163,18 @@ if (apiSettings.EnableMockMode)
 {
     // Ở chế độ Mock, sử dụng dịch vụ giả
     builder.Services.AddScoped<ITicketService, MockTicketService>();
+    // Chưa có mock service cho Admin, nên ở chế độ Mock các endpoint admin sẽ không hoạt động
     Console.WriteLine(">>>> API is running in MOCK mode. Database will NOT be affected by ticket operations. <<<<");
 }
 else
 {
     // Ở chế độ bình thường, sử dụng dịch vụ thật
     builder.Services.AddScoped<ITicketService, TicketService>();
+    builder.Services.AddScoped<IFileStorageService, FileStorageService>(); // <-- ĐĂNG KÝ MỚI
+    builder.Services.AddScoped<IAttachmentService, AttachmentService>(); // <-- ĐĂNG KÝ MỚI
+    builder.Services.AddScoped<IAdminService, AdminService>(); // Đăng ký service mới
+    builder.Services.AddScoped<ICommentService, CommentService>();
+    builder.Services.AddScoped<IGroupService, GroupService>();
     Console.WriteLine(">>>> API is running in LIVE mode. Database WILL be affected by ticket operations. <<<<");
 }
 
@@ -174,6 +184,13 @@ var app = builder.Build();
 // Chỉ seed data khi không ở chế độ mock để tránh các lỗi không cần thiết
 if (app.Environment.IsDevelopment() && !apiSettings.EnableMockMode)
 {
+    // Đảm bảo thư mục lưu trữ tồn tại
+    var attachmentsDir = Path.Combine(app.Environment.ContentRootPath, "wwwroot", attachmentSettings.StoragePath);
+    if (!Directory.Exists(attachmentsDir))
+    {
+        Directory.CreateDirectory(attachmentsDir);
+    }
+    
     using (var scope = app.Services.CreateScope())
     {
         var services = scope.ServiceProvider;
@@ -209,6 +226,7 @@ app.UseMiddleware<ExceptionHandlerMiddleware>();
 
 app.UseCors("AllowAll");
 app.UseHttpsRedirection();
+app.UseStaticFiles(); // Cần thiết để phục vụ file từ wwwroot
 // Đảm bảo UseAuthentication() đứng trước UseAuthorization()
 app.UseAuthentication();
 app.UseAuthorization();

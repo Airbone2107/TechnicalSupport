@@ -2,6 +2,7 @@ using AutoMapper;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
+using System.Security.Claims;
 using TechnicalSupport.Application.Common;
 using TechnicalSupport.Application.Extensions;
 using TechnicalSupport.Application.Features.Tickets.DTOs;
@@ -31,7 +32,7 @@ namespace TechnicalSupport.Infrastructure.Services
             _mapper = mapper;
         }
 
-        public async Task<PagedResult<TicketDto>> GetTicketsAsync(PaginationParams paginationParams, string userId)
+        public async Task<PagedResult<TicketDto>> GetTicketsAsync(TicketFilterParams filterParams, string userId)
         {
             var user = await _userManager.FindByIdAsync(userId);
             var roles = await _userManager.GetRolesAsync(user);
@@ -42,16 +43,38 @@ namespace TechnicalSupport.Infrastructure.Services
                 .Include(t => t.Assignee)
                 .OrderByDescending(t => t.UpdatedAt);
 
+            // Logic phân quyền
             if (roles.Contains("Client"))
+            {
                 query = query.Where(t => t.CustomerId == userId);
+            }
             else if (roles.Contains("Technician"))
+            {
                 query = query.Where(t => t.AssigneeId == userId || t.AssigneeId == null);
+            }
 
-            var pagedTicketsEntities = await query.ToPagedResultAsync(paginationParams.PageNumber, paginationParams.PageSize);
+            // Áp dụng các bộ lọc
+            if (filterParams.StatusId.HasValue)
+            {
+                query = query.Where(t => t.StatusId == filterParams.StatusId.Value);
+            }
+            if (!string.IsNullOrEmpty(filterParams.Priority))
+            {
+                query = query.Where(t => t.Priority == filterParams.Priority);
+            }
+            if (!string.IsNullOrEmpty(filterParams.AssigneeId))
+            {
+                query = query.Where(t => t.AssigneeId == filterParams.AssigneeId);
+            }
+            if (!string.IsNullOrEmpty(filterParams.SearchQuery))
+            {
+                var searchTerm = filterParams.SearchQuery.ToLower();
+                query = query.Where(t => t.Title.ToLower().Contains(searchTerm) || t.Description.ToLower().Contains(searchTerm));
+            }
 
+            var pagedTicketsEntities = await query.ToPagedResultAsync(filterParams.PageNumber, filterParams.PageSize);
             var ticketDtos = _mapper.Map<List<TicketDto>>(pagedTicketsEntities.Items);
-
-            return new PagedResult<TicketDto>(ticketDtos, pagedTicketsEntities.TotalCount, pagedTicketsEntities.PageNumber, pagedTicketsEntities.PageSize);
+            return new PagedResult<TicketDto>(ticketDtos, pagedTicketsEntities.TotalCount, filterParams.PageNumber, filterParams.PageSize);
         }
 
         public async Task<TicketDto?> GetTicketByIdAsync(int id)
@@ -141,6 +164,47 @@ namespace TechnicalSupport.Infrastructure.Services
             await _hubContext.Clients.Group(ticketId.ToString()).SendAsync("ReceiveNewMessage", commentDto);
 
             return commentDto;
+        }
+
+        public async Task<TicketDto?> AssignTicketAsync(int ticketId, AssignTicketModel model, string currentUserId)
+        {
+            var ticket = await _context.Tickets
+                .Include(t => t.Status)
+                .Include(t => t.Customer)
+                .FirstOrDefaultAsync(t => t.TicketId == ticketId);
+
+            if (ticket == null)
+            {
+                return null; // Ticket không tồn tại
+            }
+
+            var assigneeUser = await _userManager.FindByIdAsync(model.AssigneeId);
+            if (assigneeUser == null)
+            {
+                // Người được gán không tồn tại. Có thể throw exception hoặc trả về null.
+                return null;
+            }
+
+            var isTechnician = await _userManager.IsInRoleAsync(assigneeUser, "Technician");
+            if (!isTechnician)
+            {
+                // Chỉ có thể gán cho Technician
+                // Có thể throw một exception cụ thể để Controller bắt và trả về lỗi 400
+                throw new InvalidOperationException("User is not a Technician and cannot be assigned a ticket.");
+            }
+
+            ticket.AssigneeId = assigneeUser.Id;
+            ticket.UpdatedAt = DateTime.UtcNow;
+
+            await _context.SaveChangesAsync();
+
+            // Tải lại thông tin Assignee để trả về DTO đầy đủ
+            await _context.Entry(ticket).Reference(t => t.Assignee).LoadAsync();
+
+            // Gửi thông báo real-time
+            await _hubContext.Clients.All.SendAsync("TicketAssigned", ticketId, assigneeUser.DisplayName);
+
+            return _mapper.Map<TicketDto>(ticket);
         }
     }
 }

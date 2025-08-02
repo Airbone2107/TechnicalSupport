@@ -6,9 +6,15 @@
     <Nullable>enable</Nullable>
   </PropertyGroup>
 
+  <!-- SỬA LỖI: Thêm tham chiếu đến framework ASP.NET Core -->
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
   <ItemGroup>
     <PackageReference Include="Microsoft.AspNetCore.Identity.EntityFrameworkCore" Version="9.0.7" />
-    <PackageReference Include="Microsoft.AspNetCore.SignalR" Version="1.2.0" />
+    <!-- SỬA LỖI: Gỡ bỏ gói SignalR phiên bản cũ và không tương thích -->
+    <!-- <PackageReference Include="Microsoft.AspNetCore.SignalR" Version="1.2.0" /> -->
     <PackageReference Include="Microsoft.EntityFrameworkCore.SqlServer" Version="9.0.7" />
   </ItemGroup>
 

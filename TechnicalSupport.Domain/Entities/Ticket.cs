@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using System.ComponentModel.DataAnnotations;
 
 namespace TechnicalSupport.Domain.Entities
@@ -32,5 +33,9 @@ namespace TechnicalSupport.Domain.Entities
         public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
         public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
         public DateTime? ClosedAt { get; set; }
+
+        // Thêm navigation property
+        public virtual ICollection<Attachment> Attachments { get; set; }
+        public virtual ICollection<Comment> Comments { get; set; }
     }
 } 

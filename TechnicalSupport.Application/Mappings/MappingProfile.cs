@@ -1,5 +1,8 @@
 using AutoMapper;
+using TechnicalSupport.Application.Features.Admin.DTOs;
+using TechnicalSupport.Application.Features.Attachments.DTOs;
 using TechnicalSupport.Application.Features.Authentication.DTOs;
+using TechnicalSupport.Application.Features.Groups.DTOs;
 using TechnicalSupport.Application.Features.Tickets.DTOs;
 using TechnicalSupport.Domain.Entities;
 
@@ -11,6 +14,7 @@ namespace TechnicalSupport.Application.Mappings
         {
             // User Mappings
             CreateMap<ApplicationUser, UserDto>();
+            CreateMap<ApplicationUser, UserDetailDto>(); // Mapping mới
 
             // Status Mappings
             CreateMap<Status, StatusDto>();
@@ -26,6 +30,14 @@ namespace TechnicalSupport.Application.Mappings
                 .ForMember(dest => dest.Assignee, opt => opt.MapFrom(src => src.Assignee));
             
             CreateMap<CreateTicketModel, Ticket>();
+            
+            // Attachment Mappings
+            CreateMap<Attachment, AttachmentDto>()
+                .ForMember(dest => dest.UploadedByDisplayName, opt => opt.MapFrom(src => src.UploadedBy.DisplayName));
+            
+            // Group Mappings
+            CreateMap<Group, GroupDto>();
+            CreateMap<CreateGroupModel, Group>();
         }
     }
 } 
