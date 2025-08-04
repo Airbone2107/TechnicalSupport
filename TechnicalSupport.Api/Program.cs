@@ -1,4 +1,3 @@
-// TechnicalSupport.Api/Program.cs
 using FluentValidation;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Authorization;
@@ -8,7 +7,6 @@ using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
 using Swashbuckle.AspNetCore.Filters;
 using System.Reflection;
-using System.Security.Claims;
 using System.Text;
 using System.Text.Json;
 using TechnicalSupport.Api.Common;
@@ -16,31 +14,29 @@ using TechnicalSupport.Api.Filters;
 using TechnicalSupport.Api.Middleware;
 using TechnicalSupport.Api.Services;
 using TechnicalSupport.Api.Swagger;
-using TechnicalSupport.Application.Authorization;
 using TechnicalSupport.Application.Configurations;
+using TechnicalSupport.Application.Features.Admin.Abstractions;
+using TechnicalSupport.Application.Features.Attachments.Abstractions;
+using TechnicalSupport.Application.Features.Comments.Abstractions;
+using TechnicalSupport.Application.Features.Groups.Abstractions;
+using TechnicalSupport.Application.Features.Permissions.Abstractions;
+// Thêm using cho ProblemType Service
+using TechnicalSupport.Application.Features.ProblemTypes.Abstractions;
+// Import các Abstractions và Implementations từ cấu trúc mới
+using TechnicalSupport.Application.Features.Tickets.Abstractions;
 using TechnicalSupport.Application.Mappings;
 using TechnicalSupport.Domain.Entities;
+using TechnicalSupport.Infrastructure.Authorization;
+using TechnicalSupport.Infrastructure.Features.Admin;
+using TechnicalSupport.Infrastructure.Features.Attachments;
+using TechnicalSupport.Infrastructure.Features.Comments;
+using TechnicalSupport.Infrastructure.Features.Groups;
+using TechnicalSupport.Infrastructure.Features.Permissions;
+using TechnicalSupport.Infrastructure.Features.ProblemTypes;
+using TechnicalSupport.Infrastructure.Features.Tickets;
 using TechnicalSupport.Infrastructure.Persistence;
 using TechnicalSupport.Infrastructure.Persistence.Seed;
 using TechnicalSupport.Infrastructure.Realtime;
-
-// Import các Abstractions và Implementations từ cấu trúc mới
-using TechnicalSupport.Application.Features.Tickets.Abstractions;
-using TechnicalSupport.Infrastructure.Features.Tickets;
-using TechnicalSupport.Application.Features.Attachments.Abstractions;
-using TechnicalSupport.Infrastructure.Features.Attachments;
-using TechnicalSupport.Application.Features.Admin.Abstractions;
-using TechnicalSupport.Infrastructure.Features.Admin;
-using TechnicalSupport.Application.Features.Comments.Abstractions;
-using TechnicalSupport.Infrastructure.Features.Comments;
-using TechnicalSupport.Application.Features.Groups.Abstractions;
-using TechnicalSupport.Infrastructure.Features.Groups;
-using TechnicalSupport.Application.Features.Permissions.Abstractions;
-using TechnicalSupport.Infrastructure.Features.Permissions;
-using TechnicalSupport.Infrastructure.Authorization;
-// Thêm using cho ProblemType Service
-using TechnicalSupport.Application.Features.ProblemTypes.Abstractions;
-using TechnicalSupport.Infrastructure.Features.ProblemTypes;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -70,8 +66,8 @@ builder.Services.AddSwaggerGen(c =>
         Name = "Authorization",
         Description = "JWT Authorization header using the Bearer scheme. \r\n\r\n Enter 'Bearer' [space] and then your token in the text input below.\r\n\r\nExample: \"Bearer 12345abcdef\"",
         In = ParameterLocation.Header,
-        Type = SecuritySchemeType.Http, 
-        Scheme = "bearer", 
+        Type = SecuritySchemeType.Http,
+        Scheme = "bearer",
         BearerFormat = "JWT"
     });
 
@@ -89,7 +85,7 @@ builder.Services.AddSwaggerGen(c =>
             new string[] {}
         }
     });
-    
+
     // THÊM BỘ LỌC HEADER TÙY CHỈNH CHO CHẾ ĐỘ TEST
     c.OperationFilter<TestModeHeaderFilter>();
 
@@ -144,6 +140,26 @@ builder.Services.AddAuthentication(options =>
 
     options.Events = new JwtBearerEvents
     {
+        // *** BẮT ĐẦU ĐOẠN MÃ MỚI ĐỂ SỬA LỖI ***
+        // *** START OF NEW CODE TO FIX THE BUG ***
+        // This code allows SignalR to authenticate via query string
+        OnMessageReceived = context =>
+        {
+            var accessToken = context.Request.Query["access_token"];
+
+            // If the request is for our hub...
+            var path = context.HttpContext.Request.Path;
+            if (!string.IsNullOrEmpty(accessToken) &&
+                (path.StartsWithSegments("/ticketHub")))
+            {
+                // Read the token from the query string
+                context.Token = accessToken;
+            }
+            return Task.CompletedTask;
+        },
+        // *** KẾT THÚC ĐOẠN MÃ MỚI ***
+        // *** END OF NEW CODE ***
+
         OnAuthenticationFailed = context =>
         {
             var logger = context.HttpContext.RequestServices.GetRequiredService<ILogger<Program>>();
@@ -178,7 +194,7 @@ builder.Services.AddAuthorization(options =>
     options.AddPolicy("ReadAllTickets", policy => policy.RequireClaim("permissions", "tickets:read_all"));
     options.AddPolicy("ReadGroupTickets", policy => policy.RequireClaim("permissions", "tickets:read_group"));
     options.AddPolicy("UpdateTicketStatus", policy => policy.RequireClaim("permissions", "tickets:update_status"));
-    
+
     // Sửa lỗi: Đổi tên policy "AssignToMember", "AssignToGroup" thành một policy chung "AssignTickets"
     // hoặc giữ riêng tùy logic. Ở đây ta giữ riêng để rõ ràng nhưng thêm một policy chung cho endpoint.
     options.AddPolicy("AssignTickets", policy => policy.RequireClaim("permissions", "tickets:assign_to_member", "tickets:assign_to_group"));
@@ -189,7 +205,7 @@ builder.Services.AddAuthorization(options =>
     options.AddPolicy("DeleteTickets", policy => policy.RequireClaim("permissions", "tickets:delete"));
     options.AddPolicy("ClaimTickets", policy => policy.RequireClaim("permissions", "tickets:claim"));
     options.AddPolicy("AddComments", policy => policy.RequireClaim("permissions", "tickets:add_comment"));
-    
+
     // --- Users ---
     options.AddPolicy("ReadUsers", policy => policy.RequireClaim("permissions", "users:read"));
     options.AddPolicy("ManageUsers", policy => policy.RequireClaim("permissions", "users:manage"));
@@ -199,7 +215,7 @@ builder.Services.AddAuthorization(options =>
 
     // --- Groups ---
     options.AddPolicy("ManageGroups", policy => policy.RequireClaim("permissions", "groups:manage"));
-    
+
     // --- Problem Types ---
     options.AddPolicy("ManageProblemTypes", policy => policy.RequireClaim("permissions", "problemtypes:manage"));
 
@@ -235,7 +251,7 @@ builder.Services.AddScoped<IPermissionRequestService, PermissionRequestService>(
 builder.Services.AddScoped<IProblemTypeService, ProblemTypeService>(); // Đăng ký service mới
 
 // Sử dụng Decorator Pattern để bọc TicketService cho việc kiểm thử giao dịch
-builder.Services.AddScoped<ITicketService>(provider => 
+builder.Services.AddScoped<ITicketService>(provider =>
     new TransactionalTicketServiceDecorator(
         provider.GetRequiredService<TicketService>(), // Lấy service thật
         provider.GetRequiredService<ApplicationDbContext>(),
@@ -257,7 +273,7 @@ if (app.Environment.IsDevelopment())
     {
         Directory.CreateDirectory(attachmentsDir);
     }
-    
+
     using (var scope = app.Services.CreateScope())
     {
         var services = scope.ServiceProvider;
@@ -297,7 +313,7 @@ app.UseMiddleware<ExceptionHandlerMiddleware>();
 
 app.UseCors("AllowReactApp");
 app.UseHttpsRedirection();
-app.UseStaticFiles(); 
+app.UseStaticFiles();
 app.UseAuthentication();
 app.UseAuthorization();
 app.MapControllers();

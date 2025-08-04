@@ -1,382 +1,87 @@
-Chào bạn, để cập nhật giao diện và thêm chức năng phân trang cho danh sách Ticket, chúng ta cần chỉnh sửa một vài tệp ở phía giao diện người dùng (frontend). Dưới đây là các tệp đã được cập nhật với đầy đủ code.
+### **I. Các Nội Dung Cần Bổ Sung Vào Báo Cáo**
 
-### Tóm tắt các thay đổi:
+File PDF của bạn đã có một nền tảng tốt, tuy nhiên, mã nguồn hiện tại đã phát triển vượt xa những gì được mô tả. Bổ sung các mục sau sẽ giúp báo cáo phản ánh đúng thực tế và thể hiện được toàn bộ công sức của nhóm.
 
-1.  **`technical-support-ui/src/features/tickets/routes/TicketQueuePage.tsx`**:
-    *   Thêm state để quản lý trang hiện tại (`page`) và tổng số ticket (`totalCount`).
-    *   Cập nhật hàm `fetchTickets` để gửi thông tin phân trang (`pageNumber`, `pageSize`) lên API.
-    *   Lưu lại tổng số ticket từ phản hồi của API để tính toán số trang.
-    *   Thêm component `<Pagination>` của Material-UI để người dùng có thể chuyển trang.
-    *   Reset về trang đầu tiên mỗi khi người dùng thay đổi tab hoặc bộ lọc để đảm bảo trải nghiệm người dùng nhất quán.
+---
 
-2.  **`technical-support-ui/src/features/tickets/routes/MyTicketsPage.tsx`**:
-    *   Thực hiện các thay đổi tương tự như trang `TicketQueuePage` để thêm chức năng phân trang vào danh sách "My Tickets", đảm bảo tính đồng bộ trên toàn ứng dụng.
+#### **1. Cập nhật và Chi tiết hóa Hệ thống Phân quyền (Quan trọng nhất)**
 
-Bạn chỉ cần sao chép và dán nội dung của các tệp dưới đây để áp dụng thay đổi.
+Báo cáo hiện tại mô tả các vai trò chung chung (Client, Technician, Admin). Tuy nhiên, hệ thống của bạn đã triển khai một cơ chế phân quyền dựa trên quyền (Permission-Based) rất chi tiết và linh hoạt, đây là một điểm cộng lớn về mặt kỹ thuật.
 
-### Các tệp đã được cập nhật:
+**Nội dung cần bổ sung:**
 
-```tsx
-// technical-support-ui/src/features/tickets/routes/MyTicketsPage.tsx
-import React, { useEffect, useState } from 'react';
-import { useNavigate, Link as RouterLink } from 'react-router-dom';
-import { getTickets } from '../api/ticketService';
-import { Ticket, TicketFilterParams } from 'types/entities';
-import LoadingSpinner from 'components/LoadingSpinner';
-import { Box, Typography, Button, Stack, Card, CardActionArea, CardContent, Chip, Paper, Pagination } from '@mui/material';
-import AddIcon from '@mui/icons-material/Add';
+*   **Giới thiệu Hệ thống Phân quyền dựa trên Policy và Permission:** Giải thích rằng thay vì chỉ dựa vào vai trò, hệ thống sử dụng các "permission" (quyền) cụ thể (ví dụ: `tickets:create`, `groups:manage`). Các quyền này được gán cho người dùng thông qua vai trò của họ trong file `AuthController.cs`. Điều này giúp hệ thống linh hoạt hơn rất nhiều.
+*   **Cập nhật các Vai trò Người dùng:** Các vai trò đã được định nghĩa lại một cách rõ ràng hơn:
+    *   **Technician** -> **Agent**: Đây là thay đổi tên gọi cơ bản.
+    *   **Manager** được tách thành nhiều vai trò chuyên biệt hơn:
+        *   **Group Manager**: Quản lý thành viên trong nhóm của mình, gán ticket cho thành viên.
+        *   **Ticket Manager**: Quản lý tất cả các ticket, có quyền phân loại và gán ticket vào các nhóm hỗ trợ.
+        *   **Manager** (User Manager): Quản lý người dùng, vai trò và các yêu cầu cấp quyền.
+        *   **Admin**: Có toàn bộ quyền hạn.
+*   **Tạo Bảng Phân quyền Chi tiết:** Bạn nên tạo một bảng để mô tả rõ ràng vai trò nào có những quyền (permission) nào. Ví dụ:
 
-type StatusColor = "info" | "warning" | "success" | "default" | "error";
+| Vai trò          | Các Quyền (Permissions) Chính                                                                                               |
+| ----------------- | --------------------------------------------------------------------------------------------------------------------------- |
+| Client            | `tickets:create`, `tickets:read_own`, `tickets:add_comment`                                                                 |
+| Agent             | Bao gồm quyền của Client + `tickets:read_queue`, `tickets:update_status`, `tickets:claim`, `permissions:request`            |
+| Group Manager     | Bao gồm quyền của Agent + `tickets:assign_to_member`, `tickets:reject_from_group`                                           |
+| Ticket Manager    | Bao gồm quyền của Agent + `tickets:read_all`, `tickets:assign_to_group`, `problemtypes:manage`                               |
+| Manager           | `users:manage`, `users:read`, `groups:manage`, `permissions:review`                                                         |
+| Admin             | Tất cả các quyền trên + `users:delete`, `tickets:delete`                                                                    |
 
-const statusMapping: Record<string, { color: StatusColor, borderColor: string }> = {
-  "Open": { color: "info", borderColor: 'info.main' },
-  "In Progress": { color: "warning", borderColor: 'warning.main' },
-  "Resolved": { color: "success", borderColor: 'success.main' },
-  "Closed": { color: "default", borderColor: 'grey.500' },
-  "On Hold": { color: "error", borderColor: 'error.main' },
-};
+---
 
-const priorityMapping: Record<string, StatusColor> = {
-  "High": "error",
-  "Medium": "warning",
-  "Low": "success",
-};
+#### **2. Chức năng Quản lý Loại sự cố (Problem Types)**
 
-const PAGE_SIZE = 10;
+Đây là một chức năng hoàn toàn mới và rất hữu ích chưa được đề cập trong phần "Phân tích và Thiết kế Hệ thống" của báo cáo.
 
-const MyTicketsPage: React.FC = () => {
-  const [tickets, setTickets] = useState<Ticket[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [page, setPage] = useState(1);
-  const [totalCount, setTotalCount] = useState(0);
-  const navigate = useNavigate();
+**Nội dung cần bổ sung:**
 
-  useEffect(() => {
-    setLoading(true);
-    const params: TicketFilterParams = { 
-      pageNumber: page, 
-      pageSize: PAGE_SIZE,
-      createdByMe: true 
-    };
-    
-    getTickets(params)
-      .then((response) => {
-        if (response.succeeded) {
-          setTickets(response.data.items);
-          setTotalCount(response.data.totalCount);
-        } else {
-          console.error("Failed to fetch tickets:", response.message);
-          setTickets([]);
-          setTotalCount(0);
-        }
-      })
-      .catch((error) => console.error("Error fetching tickets:", error))
-      .finally(() => setLoading(false));
-  }, [page]);
+*   **Mô tả chức năng:** Thêm một mục mô tả chức năng "Quản lý Loại sự cố" dành cho vai trò `Ticket Manager` và `Admin`.
+*   **Mục đích:** Giải thích rằng chức năng này cho phép người quản trị có thể Thêm/Sửa/Xóa các loại sự cố (ví dụ: Lỗi phần cứng, Lỗi phần mềm, Yêu cầu mạng).
+*   **Lợi ích:** Nhấn mạnh lợi ích của việc này là giúp **tự động định tuyến ticket**. Khi tạo một `ProblemType`, người quản trị có thể gán nó vào một `Group` hỗ trợ mặc định. Khi người dùng tạo ticket và chọn loại sự cố đó, ticket sẽ tự động được đưa vào hàng đợi của nhóm hỗ trợ tương ứng, giúp giảm thời gian phân loại thủ công.
 
-  const handlePageChange = (event: React.ChangeEvent<unknown>, value: number) => {
-    setPage(value);
-  };
+---
 
-  const getStatusInfo = (statusName: string) => {
-    return statusMapping[statusName] || { color: "default", borderColor: 'grey.500' };
-  };
+#### **3. Chi tiết hóa các Luồng xử lý Ticket Nâng cao**
 
-  if (loading) return <LoadingSpinner message="Đang tải các ticket của bạn..." />;
+Báo cáo đã liệt kê các hành động cơ bản, nhưng mã nguồn của bạn có những luồng xử lý tinh vi hơn.
 
-  return (
-    <Box>
-      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
-        <Typography variant="h4" component="h1">My Support Tickets</Typography>
-        <Button
-          component={RouterLink}
-          to="/tickets/new"
-          variant="contained"
-          startIcon={<AddIcon />}
-        >
-          Tạo Ticket Mới
-        </Button>
-      </Box>
+**Nội dung cần bổ sung:**
 
-      {tickets.length === 0 ? (
-        <Paper sx={{ textAlign: 'center', p: 4 }}>
-          <Typography variant="h6">Bạn chưa tạo ticket nào.</Typography>
-          <Button component={RouterLink} to="/tickets/new" sx={{ mt: 2 }}>
-            Tạo ticket đầu tiên của bạn
-          </Button>
-        </Paper>
-      ) : (
-        <>
-            <Stack spacing={2}>
-            {tickets.map((t) => (
-                <Card 
-                key={t.ticketId} 
-                sx={{ borderLeft: 5, borderColor: getStatusInfo(t.status.name).borderColor }}
-                >
-                <CardActionArea onClick={() => navigate(`/tickets/${t.ticketId}`)}>
-                    <CardContent>
-                    <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                        <Typography variant="h6" component="h3" sx={{ mb: 1 }}>{t.title}</Typography>
-                        <Chip
-                        label={t.priority}
-                        color={priorityMapping[t.priority] || 'default'}
-                        size="small"
-                        />
-                    </Box>
-                    <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-                        #{t.ticketId} &bull; Cập nhật lần cuối: {new Date(t.updatedAt).toLocaleString()}
-                    </Typography>
-                    <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <Chip
-                        label={t.status.name}
-                        color={getStatusInfo(t.status.name).color}
-                        variant="outlined"
-                        size="small"
-                        />
-                        <Typography variant="body2" color="text.secondary">
-                        Giao cho: {t.assignee?.displayName || 'Chưa gán'}
-                        </Typography>
-                    </Box>
-                    </CardContent>
-                </CardActionArea>
-                </Card>
-            ))}
-            </Stack>
+*   **Nhận Ticket (Claim Ticket):** Mô tả luồng một `Agent` trong nhóm thấy một ticket chưa được gán trong hàng đợi của nhóm và có thể bấm "Nhận" (Claim) để tự gán ticket đó cho bản thân.
+*   **Đẩy Ticket khỏi Nhóm (Reject from Group):** Mô tả luồng một `Group Manager` có thể đẩy một ticket ra khỏi nhóm của mình nếu nó bị gán sai. Ticket này sẽ quay trở lại hàng đợi chung để `Ticket Manager` phân loại lại.
+*   **Phân biệt Gán vào Nhóm và Gán cho Thành viên:**
+    *   **Gán vào Nhóm (Assign to Group):** Chức năng của `Ticket Manager`, dùng để phân loại ticket từ hàng đợi chung vào một nhóm hỗ trợ cụ thể.
+    *   **Gán cho Thành viên (Assign to Member):** Chức năng của `Group Manager`, dùng để gán ticket (đã thuộc nhóm mình) cho một `Agent` cụ thể trong nhóm.
 
-            {totalCount > PAGE_SIZE && (
-                <Box sx={{ display: 'flex', justifyContent: 'center', mt: 3, pb: 2 }}>
-                    <Pagination
-                        count={Math.ceil(totalCount / PAGE_SIZE)}
-                        page={page}
-                        onChange={handlePageChange}
-                        color="primary"
-                    />
-                </Box>
-            )}
-        </>
-      )}
-    </Box>
-  );
-};
+---
 
-export default MyTicketsPage;
-```
+#### **4. Cải tiến Giao diện Hàng đợi Ticket (Ticket Queue)**
 
-```tsx
-// technical-support-ui/src/features/tickets/routes/TicketQueuePage.tsx
-import React, { useEffect, useState, useCallback } from 'react';
-import { useAuth } from 'contexts/AuthContext';
-import { getTickets } from '../api/ticketService';
-import { Ticket, TicketFilterParams } from 'types/entities';
-import { TicketStatus } from 'types/enums';
-import LoadingSpinner from 'components/LoadingSpinner';
-import TicketCard from '../components/TicketCard';
-import { Box, Typography, Paper, TextField, Select, MenuItem, FormControl, InputLabel, Button, Stack, Tabs, Tab, Pagination } from '@mui/material';
+Giao diện `TicketQueuePage` trong code phức tạp và hữu ích hơn nhiều so với mô tả "Xem hàng đợi ticket" đơn thuần.
 
-type TabValue = 'assigned' | 'active' | 'onHold' | 'archive' | 'unassigned' | 'all';
+**Nội dung cần bổ sung:**
 
-const TICKET_PAGE_SIZE = 10;
+*   **Giao diện theo Tab:** Mô tả giao diện được chia thành các tab để giúp người dùng dễ dàng lọc và quản lý ticket, ví dụ:
+    *   **Assigned to Me:** Các ticket được gán cho cá nhân `Agent`.
+    *   **Active in My Groups:** Các ticket đang hoạt động trong nhóm của `Agent`.
+    *   **Unassigned:** (Dành cho `Ticket Manager`) Các ticket mới tạo, chưa được phân vào nhóm nào.
+    *   **All Tickets:** (Dành cho `Ticket Manager`/`Admin`) Xem toàn bộ ticket trong hệ thống.
+*   **Bộ lọc Nâng cao:** Đề cập đến khả năng lọc ticket theo từ khóa, mức độ ưu tiên (Priority), và trạng thái (Status).
 
-const TicketQueuePage: React.FC = () => {
-  const { user, hasPermission } = useAuth();
-  const [tickets, setTickets] = useState<Ticket[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [searchFilters, setSearchFilters] = useState<{ searchQuery?: string, priority?: string, statuses?: string[] }>({});
-  
-  const [page, setPage] = useState(1);
-  const [totalCount, setTotalCount] = useState(0);
+---
 
-  const isAgent = user?.roles.includes('Agent');
-  const isTicketManager = hasPermission('tickets:assign_to_group');
+#### **5. Hệ thống Thông báo Thời gian thực (Notifications)**
 
-  const agentTabs: { label: string; value: TabValue }[] = [
-    { label: 'Assigned to Me', value: 'assigned' },
-    { label: 'Active in My Groups', value: 'active' },
-    { label: 'On Hold in My Groups', value: 'onHold' },
-    { label: 'Archived in My Groups', value: 'archive' },
-  ];
+Báo cáo có nhắc đến SignalR, nhưng bạn nên mô tả cụ thể nó được thể hiện trên giao diện người dùng như thế nào.
 
-  const managerTabs: { label: string; value: TabValue }[] = [
-    { label: 'Unassigned', value: 'unassigned' },
-    { label: 'All Tickets', value: 'all' },
-  ];
+**Nội dung cần bổ sung:**
 
-  const availableTabs = [
-    ...(isAgent ? agentTabs : []),
-    ...(isTicketManager ? managerTabs : []),
-  ];
-
-  const [activeTab, setActiveTab] = useState<TabValue>(availableTabs[0]?.value || 'assigned');
-
-  const fetchTickets = useCallback(() => {
-    setLoading(true);
-
-    let tabParams: TicketFilterParams = {};
-    switch (activeTab) {
-      case 'assigned':
-        tabParams = { myTicket: true, statuses: [TicketStatus.Open, TicketStatus.InProgress, TicketStatus.OnHold] };
-        break;
-      case 'active':
-        tabParams = { myGroupTicket: true, statuses: [TicketStatus.Open, TicketStatus.InProgress] };
-        break;
-      case 'onHold':
-        tabParams = { myGroupTicket: true, statuses: [TicketStatus.OnHold] };
-        break;
-      case 'archive':
-        tabParams = { myGroupTicket: true, statuses: [TicketStatus.Resolved, TicketStatus.Closed] };
-        break;
-      case 'unassigned':
-        tabParams = { unassignedToGroupOnly: true };
-        break;
-      case 'all':
-        tabParams = {};
-        break;
-    }
-
-    const finalParams: TicketFilterParams = {
-      ...searchFilters,
-      ...tabParams,
-      pageNumber: page,
-      pageSize: TICKET_PAGE_SIZE,
-    };
-
-    getTickets(finalParams)
-      .then(res => {
-          if (res.succeeded) {
-              setTickets(res.data.items);
-              setTotalCount(res.data.totalCount);
-          } else {
-              setTickets([]);
-              setTotalCount(0);
-          }
-      })
-      .catch(err => {
-        console.error("Error fetching tickets:", err);
-        setTickets([]);
-        setTotalCount(0);
-      })
-      .finally(() => setLoading(false));
-  }, [activeTab, searchFilters, page]);
-
-  useEffect(() => {
-    fetchTickets();
-  }, [fetchTickets]);
-
-  const handleFilterChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement> | any) => {
-    const { name, value } = e.target;
-    setPage(1); // Reset page on filter change
-    setSearchFilters(prev => ({ ...prev, [name]: value === "" ? undefined : value }));
-  };
-
-  const handleTabChange = (event: React.SyntheticEvent, newValue: TabValue) => {
-    setActiveTab(newValue);
-    setSearchFilters({});
-    setPage(1);
-  };
-
-  const handleSearch = () => {
-    if (page !== 1) {
-        setPage(1);
-    } else {
-        fetchTickets();
-    }
-  };
-
-  const resetFilters = () => {
-    setSearchFilters({});
-    setPage(1);
-  };
-
-  const handlePageChange = (event: React.ChangeEvent<unknown>, value: number) => {
-    setPage(value);
-  };
-
-  return (
-    <Box>
-      <Typography variant="h4" component="h1" gutterBottom>Ticket Queue</Typography>
-
-      <Box sx={{ borderBottom: 1, borderColor: 'divider', mb: 2 }}>
-        <Tabs value={activeTab} onChange={handleTabChange} variant="scrollable">
-          {availableTabs.map(tab => (
-            <Tab key={tab.value} label={tab.label} value={tab.value} />
-          ))}
-        </Tabs>
-      </Box>
-
-      <Paper sx={{ p: 2, mb: 3 }}>
-        <Stack direction={{ xs: 'column', md: 'row' }} spacing={2} alignItems="center">
-          <TextField 
-            name="searchQuery" 
-            label="Search by Keyword/ID" 
-            variant="outlined"
-            size="small"
-            fullWidth
-            value={searchFilters.searchQuery || ''} 
-            onChange={handleFilterChange} 
-            onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
-          />
-          <FormControl size="small" fullWidth>
-            <InputLabel>Priority</InputLabel>
-            <Select name="priority" value={searchFilters.priority || ''} label="Priority" onChange={handleFilterChange}>
-              <MenuItem value="">All Priorities</MenuItem>
-              <MenuItem value="Low">Low</MenuItem>
-              <MenuItem value="Medium">Medium</MenuItem>
-              <MenuItem value="High">High</MenuItem>
-            </Select>
-          </FormControl>
-
-          {isTicketManager && activeTab === 'all' && (
-             <FormControl size="small" fullWidth>
-              <InputLabel>Status</InputLabel>
-              <Select
-                name="statuses"
-                multiple
-                value={searchFilters.statuses || []}
-                label="Status"
-                onChange={handleFilterChange}
-                renderValue={(selected) => (selected as string[]).join(', ')}
-              >
-                {Object.values(TicketStatus).map(s => (
-                  <MenuItem key={s} value={s}>{s}</MenuItem>
-                ))}
-              </Select>
-            </FormControl>
-          )}
-
-          <Button onClick={handleSearch} variant="contained">Search</Button>
-          <Button onClick={resetFilters} variant="outlined">Reset</Button>
-        </Stack>
-      </Paper>
-
-      {loading ? (
-        <LoadingSpinner message="Loading ticket queue..." />
-      ) : (
-        <>
-            <Stack spacing={2}>
-            {tickets.length > 0 ? (
-                tickets.map(t => <TicketCard key={t.ticketId} ticket={t} />)
-            ) : (
-                <Paper sx={{ p: 4, textAlign: 'center' }}>
-                <Typography>No tickets found matching your criteria.</Typography>
-                </Paper>
-            )}
-            </Stack>
-
-            {totalCount > TICKET_PAGE_SIZE && (
-            <Box sx={{ display: 'flex', justifyContent: 'center', mt: 3, pb: 2 }}>
-                <Pagination
-                count={Math.ceil(totalCount / TICKET_PAGE_SIZE)}
-                page={page}
-                onChange={handlePageChange}
-                color="primary"
-                />
-            </Box>
-            )}
-        </>
-      )}
-    </Box>
-  );
-};
-
-export default TicketQueuePage;
-```
+*   **Mô tả thành phần Giao diện:** Có một biểu tượng chuông thông báo (`NotificationBell`) trên thanh header, hiển thị số lượng thông báo chưa đọc. Khi nhấp vào, một danh sách các thông báo gần đây sẽ hiện ra.
+*   **Các Sự kiện Kích hoạt Thông báo:** Liệt kê các sự kiện quan trọng sẽ gửi thông báo đến người dùng liên quan:
+    *   Khi có ticket mới được tạo.
+    *   Khi có bình luận mới trong ticket họ tham gia.
+    *   Khi ticket được gán cho họ hoặc nhóm của họ.
+    *   Khi trạng thái ticket của họ thay đổi.
+    *   Khi một ticket mới được thêm vào hàng đợi (kích hoạt hiệu ứng animation trên card).

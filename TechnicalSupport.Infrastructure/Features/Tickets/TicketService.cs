@@ -9,6 +9,7 @@ using System.Security.Claims;
 using TechnicalSupport.Application.Authorization;
 using TechnicalSupport.Application.Common;
 using TechnicalSupport.Application.Extensions;
+using TechnicalSupport.Application.Features.Realtime.DTOs;
 using TechnicalSupport.Application.Features.Tickets.Abstractions;
 using TechnicalSupport.Application.Features.Tickets.DTOs;
 using TechnicalSupport.Domain.Entities;
@@ -128,7 +129,6 @@ namespace TechnicalSupport.Infrastructure.Features.Tickets
                 return null;
             }
 
-            // SỬA LỖI: Thay thế chuỗi "Read" bằng đối tượng Operations.Read
             var authResult = await _authorizationService.AuthorizeAsync(GetCurrentUser(), ticket, Operations.Read);
             if (!authResult.Succeeded)
             {
@@ -141,6 +141,7 @@ namespace TechnicalSupport.Infrastructure.Features.Tickets
         public async Task<TicketDto> CreateTicketAsync(CreateTicketModel model)
         {
             var customerId = _userManager.GetUserId(GetCurrentUser());
+            var customer = await _userManager.FindByIdAsync(customerId);
 
             var problemType = await _context.ProblemTypes.FindAsync(model.ProblemTypeId);
 
@@ -163,26 +164,116 @@ namespace TechnicalSupport.Infrastructure.Features.Tickets
             await _context.Entry(ticket).Reference(t => t.Customer).LoadAsync();
             await _context.Entry(ticket).Reference(t => t.Group).LoadAsync();
 
+            // --- BẮT ĐẦU LOGIC REALTIME MỚI ---
+
+            // 1. Thông báo cho các Ticket Manager về ticket mới
+            var ticketManagers = await _userManager.GetUsersInRoleAsync("Ticket Manager");
+            var managerNotification = new NotificationPayload
+            {
+                Message = $"Ticket mới #{ticket.TicketId}: '{ticket.Title}' đã được tạo bởi {customer.DisplayName}.",
+                Link = $"/tickets/{ticket.TicketId}",
+                Type = "info"
+            };
+            foreach (var manager in ticketManagers)
+            {
+                await _hubContext.Clients.User(manager.Id).SendAsync(HubEvents.ReceiveNotification, managerNotification);
+            }
+
+            // 2. Gửi sự kiện để kích hoạt animation ở client
+            await _hubContext.Clients.All.SendAsync(HubEvents.NewTicketAdded, _mapper.Map<TicketDto>(ticket));
+
+            // 3. Nếu ticket được TỰ ĐỘNG GÁN NHÓM, gửi thêm thông báo
+            if (ticket.GroupId.HasValue)
+            {
+                var group = await _context.Groups.FindAsync(ticket.GroupId.Value);
+                if (group != null)
+                {
+                    // Lấy danh sách thành viên trong nhóm
+                    var members = await _context.TechnicianGroups
+                        .Where(tg => tg.GroupId == ticket.GroupId.Value)
+                        .Select(tg => tg.UserId)
+                        .ToListAsync();
+
+                    // Gửi thông báo cho các thành viên
+                    var groupNotification = new NotificationPayload
+                    {
+                        Message = $"Ticket mới #{ticket.TicketId} đã được tự động phân vào nhóm '{group.Name}'.",
+                        Link = $"/tickets/{ticket.TicketId}"
+                    };
+                    if (members.Any())
+                    {
+                        await _hubContext.Clients.Users(members).SendAsync(HubEvents.ReceiveNotification, groupNotification);
+                    }
+                }
+
+                // Quan trọng: Gửi sự kiện cập nhật danh sách chung để các client khác (như Manager)
+                // thấy ticket biến mất khỏi hàng chờ "Unassigned"
+                await _hubContext.Clients.All.SendAsync(HubEvents.TicketListUpdated);
+            }
+            // --- KẾT THÚC LOGIC REALTIME MỚI ---
+
             return _mapper.Map<TicketDto>(ticket);
         }
 
         public async Task<TicketDto?> UpdateTicketStatusAsync(int id, UpdateStatusModel model)
         {
-            var ticket = await _context.Tickets.FindAsync(id);
+            var ticket = await _context.Tickets
+                .Include(t => t.Customer)
+                .Include(t => t.Assignee)
+                .Include(t => t.Status)
+                .FirstOrDefaultAsync(t => t.TicketId == id);
+
             if (ticket == null) return null;
+
+            var newStatus = await _context.Statuses.FindAsync(model.StatusId);
+            if (newStatus == null) return null;
 
             ticket.StatusId = model.StatusId;
             ticket.UpdatedAt = DateTime.UtcNow;
+            if (newStatus.Name == "Closed" || newStatus.Name == "Resolved")
+            {
+                ticket.ClosedAt = DateTime.UtcNow;
+            }
+            else
+            {
+                ticket.ClosedAt = null;
+            }
 
             await _context.SaveChangesAsync();
 
-            await _hubContext.Clients.Group(id.ToString()).SendAsync("ReceiveStatusUpdate", id, model.StatusId);
+            // REALTIME: Gửi thông báo cho các bên liên quan
+            var currentUser = await _userManager.GetUserAsync(GetCurrentUser());
+            var notification = new NotificationPayload
+            {
+                Message = $"Trạng thái của ticket #{id} đã được cập nhật thành '{newStatus.Name}' bởi {currentUser.DisplayName}.",
+                Link = $"/tickets/{id}"
+            };
+
+            // Gửi cho người tạo ticket
+            await _hubContext.Clients.User(ticket.CustomerId).SendAsync(HubEvents.ReceiveNotification, notification);
+            // Gửi cho người đang được gán (nếu có)
+            if (!string.IsNullOrEmpty(ticket.AssigneeId) && ticket.AssigneeId != currentUser.Id)
+            {
+                await _hubContext.Clients.User(ticket.AssigneeId).SendAsync(HubEvents.ReceiveNotification, notification);
+            }
+
+            // Gửi cho những người đang xem ticket
+            await _hubContext.Clients.Group($"Ticket_{id}").SendAsync(HubEvents.TicketListUpdated);
+            // Gửi cho tất cả để cập nhật danh sách
+            await _hubContext.Clients.All.SendAsync(HubEvents.TicketListUpdated);
 
             return await GetTicketByIdAsync(id);
         }
 
         public async Task<CommentDto?> AddCommentAsync(int ticketId, AddCommentModel model)
         {
+            var ticket = await _context.Tickets
+                .Include(t => t.Customer)
+                .Include(t => t.Assignee)
+                .FirstOrDefaultAsync(t => t.TicketId == ticketId);
+
+            if (ticket == null) return null;
+
             var userId = _userManager.GetUserId(GetCurrentUser());
             var user = await _userManager.FindByIdAsync(userId);
 
@@ -190,8 +281,10 @@ namespace TechnicalSupport.Infrastructure.Features.Tickets
             {
                 TicketId = ticketId,
                 UserId = userId,
-                Content = model.Content
+                Content = model.Content,
+                CreatedAt = DateTime.UtcNow
             };
+            ticket.UpdatedAt = DateTime.UtcNow;
 
             _context.Comments.Add(comment);
             await _context.SaveChangesAsync();
@@ -199,24 +292,69 @@ namespace TechnicalSupport.Infrastructure.Features.Tickets
             var commentDto = _mapper.Map<CommentDto>(comment);
             commentDto.User = _mapper.Map<UserDto>(user);
 
-            await _hubContext.Clients.Group(ticketId.ToString()).SendAsync("ReceiveNewMessage", commentDto);
+            // REALTIME: Gửi comment tới những người đang xem ticket
+            await _hubContext.Clients.Group($"Ticket_{ticketId}").SendAsync(HubEvents.ReceiveNotification, new NotificationPayload { Message = "Có bình luận mới trong ticket." });
+
+            // Gửi thông báo cho người không xem
+            var notification = new NotificationPayload
+            {
+                Message = $"{user.DisplayName} đã bình luận trong ticket #{ticketId}: '{ticket.Title}'.",
+                Link = $"/tickets/{ticketId}"
+            };
+            // Nếu người bình luận không phải là khách hàng, báo cho khách hàng
+            if (ticket.CustomerId != userId)
+            {
+                await _hubContext.Clients.User(ticket.CustomerId).SendAsync(HubEvents.ReceiveNotification, notification);
+            }
+            // Nếu người bình luận không phải là người được gán, báo cho người được gán
+            if (ticket.AssigneeId != null && ticket.AssigneeId != userId)
+            {
+                await _hubContext.Clients.User(ticket.AssigneeId).SendAsync(HubEvents.ReceiveNotification, notification);
+            }
+
+            // Cập nhật danh sách
+            await _hubContext.Clients.All.SendAsync(HubEvents.TicketListUpdated);
+
 
             return commentDto;
         }
 
         public async Task<TicketDto?> AssignTicketAsync(int ticketId, AssignTicketModel model)
         {
-            var ticket = await _context.Tickets.FindAsync(ticketId);
+            var ticket = await _context.Tickets.Include(t => t.Customer).FirstOrDefaultAsync(t => t.TicketId == ticketId);
             if (ticket == null) throw new KeyNotFoundException("Ticket not found.");
 
             var userToAssign = await _userManager.FindByIdAsync(model.AssigneeId);
             if (userToAssign == null) throw new InvalidOperationException("User to assign not found.");
 
+            var currentUser = await _userManager.GetUserAsync(GetCurrentUser());
+
+
             ticket.AssigneeId = model.AssigneeId;
             ticket.UpdatedAt = DateTime.UtcNow;
 
             await _context.SaveChangesAsync();
-            await _hubContext.Clients.Group(ticketId.ToString()).SendAsync("TicketAssigned", ticketId, userToAssign.DisplayName);
+
+            // REALTIME: Gửi thông báo
+            // 1. Cho agent được gán
+            var notificationForAgent = new NotificationPayload
+            {
+                Message = $"Bạn vừa được {currentUser.DisplayName} gán ticket #{ticketId}: '{ticket.Title}'.",
+                Link = $"/tickets/{ticketId}",
+                IsHighlight = true // Thông báo quan trọng
+            };
+            await _hubContext.Clients.User(userToAssign.Id).SendAsync(HubEvents.ReceiveNotification, notificationForAgent);
+
+            // 2. Cho khách hàng
+            var notificationForClient = new NotificationPayload
+            {
+                Message = $"Ticket #{ticketId} của bạn đã được gán cho chuyên viên {userToAssign.DisplayName}.",
+                Link = $"/tickets/{ticketId}",
+            };
+            await _hubContext.Clients.User(ticket.CustomerId).SendAsync(HubEvents.ReceiveNotification, notificationForClient);
+
+            // 3. Cập nhật danh sách
+            await _hubContext.Clients.All.SendAsync(HubEvents.TicketListUpdated);
 
             return await GetTicketByIdAsync(ticketId);
         }
@@ -233,7 +371,20 @@ namespace TechnicalSupport.Infrastructure.Features.Tickets
             ticket.UpdatedAt = DateTime.UtcNow;
 
             await _context.SaveChangesAsync();
-            await _hubContext.Clients.All.SendAsync("TicketAssignedToGroup", ticketId, groupToAssign.Name);
+
+            // REALTIME: Thông báo cho các thành viên trong nhóm và cập nhật danh sách
+            var members = await _context.TechnicianGroups
+                .Where(tg => tg.GroupId == model.GroupId)
+                .Select(tg => tg.UserId)
+                .ToListAsync();
+
+            var notification = new NotificationPayload
+            {
+                Message = $"Một ticket mới (#{ticketId}) đã được chuyển vào nhóm {groupToAssign.Name} của bạn.",
+                Link = $"/tickets/{ticketId}"
+            };
+            await _hubContext.Clients.Users(members).SendAsync(HubEvents.ReceiveNotification, notification);
+            await _hubContext.Clients.All.SendAsync(HubEvents.TicketListUpdated);
 
 
             return await GetTicketByIdAsync(ticketId);
@@ -250,34 +401,68 @@ namespace TechnicalSupport.Infrastructure.Features.Tickets
             _context.Tickets.Remove(ticket);
             await _context.SaveChangesAsync();
 
+            // REALTIME: Cập nhật danh sách
+            await _hubContext.Clients.All.SendAsync(HubEvents.TicketListUpdated);
+
             return (true, "Ticket deleted successfully.");
         }
 
         public async Task<TicketDto> ClaimTicketAsync(int ticketId)
         {
-            var ticket = await _context.Tickets.FindAsync(ticketId);
+            var ticket = await _context.Tickets.Include(t => t.Customer).FirstOrDefaultAsync(t => t.TicketId == ticketId);
             if (ticket == null) throw new KeyNotFoundException("Ticket not found.");
 
             if (ticket.AssigneeId != null) throw new InvalidOperationException("Ticket is already assigned.");
 
             var userId = _userManager.GetUserId(GetCurrentUser());
+            var user = await _userManager.FindByIdAsync(userId);
+
             ticket.AssigneeId = userId;
             ticket.UpdatedAt = DateTime.UtcNow;
 
             await _context.SaveChangesAsync();
+
+            // REALTIME: Thông báo cho khách hàng
+            var notificationForClient = new NotificationPayload
+            {
+                Message = $"Chuyên viên {user.DisplayName} đã tiếp nhận ticket #{ticketId} của bạn.",
+                Link = $"/tickets/{ticketId}",
+            };
+            await _hubContext.Clients.User(ticket.CustomerId).SendAsync(HubEvents.ReceiveNotification, notificationForClient);
+            await _hubContext.Clients.All.SendAsync(HubEvents.TicketListUpdated);
+
             return await GetTicketByIdAsync(ticketId);
         }
 
         public async Task<TicketDto> RejectFromGroupAsync(int ticketId)
         {
-            var ticket = await _context.Tickets.FindAsync(ticketId);
+            var ticket = await _context.Tickets
+                .Include(t => t.Group)
+                .FirstOrDefaultAsync(t => t.TicketId == ticketId);
             if (ticket == null) throw new KeyNotFoundException("Ticket not found.");
+
+            var oldGroupName = ticket.Group?.Name;
 
             ticket.GroupId = null;
             ticket.AssigneeId = null;
             ticket.UpdatedAt = DateTime.UtcNow;
 
             await _context.SaveChangesAsync();
+
+            // REALTIME: Thông báo cho các Ticket Manager
+            var ticketManagers = await _userManager.GetUsersInRoleAsync("Ticket Manager");
+            var notification = new NotificationPayload
+            {
+                Message = $"Ticket #{ticket.TicketId} đã bị đẩy khỏi nhóm {oldGroupName} và cần phân loại lại.",
+                Link = $"/tickets/{ticket.TicketId}",
+                Type = "warning"
+            };
+            foreach (var manager in ticketManagers)
+            {
+                await _hubContext.Clients.User(manager.Id).SendAsync(HubEvents.ReceiveNotification, notification);
+            }
+            await _hubContext.Clients.All.SendAsync(HubEvents.TicketListUpdated);
+
             return await GetTicketByIdAsync(ticketId);
         }
     }
