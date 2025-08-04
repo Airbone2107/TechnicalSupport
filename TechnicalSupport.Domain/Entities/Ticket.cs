@@ -1,5 +1,5 @@
-using System.Collections.Generic;
 using System.ComponentModel.DataAnnotations;
+using System.ComponentModel.DataAnnotations.Schema;
 
 namespace TechnicalSupport.Domain.Entities
 {
@@ -27,6 +27,11 @@ namespace TechnicalSupport.Domain.Entities
         public int StatusId { get; set; }
         public Status Status { get; set; }
 
+        // Thêm cột khóa ngoại ProblemTypeId
+        public int? ProblemTypeId { get; set; }
+        [ForeignKey("ProblemTypeId")]
+        public ProblemType? ProblemType { get; set; }
+
         [StringLength(20)]
         public string Priority { get; set; } = "Medium";
 
@@ -34,7 +39,6 @@ namespace TechnicalSupport.Domain.Entities
         public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
         public DateTime? ClosedAt { get; set; }
 
-        // Thêm navigation property
         public virtual ICollection<Attachment> Attachments { get; set; }
         public virtual ICollection<Comment> Comments { get; set; }
     }

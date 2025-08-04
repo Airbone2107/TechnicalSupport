@@ -6,7 +6,7 @@ namespace TechnicalSupport.Infrastructure.Persistence
 {
     public class ApplicationDbContext : IdentityDbContext<ApplicationUser>
     {
-        public ApplicationDbContext(DbContextOptions<ApplicationDbContext> options): base(options)
+        public ApplicationDbContext(DbContextOptions<ApplicationDbContext> options) : base(options)
         {
         }
 
@@ -16,93 +16,61 @@ namespace TechnicalSupport.Infrastructure.Persistence
         public DbSet<Group> Groups { get; set; }
         public DbSet<TechnicianGroup> TechnicianGroups { get; set; }
         public DbSet<Status> Statuses { get; set; }
+        public DbSet<PermissionRequest> PermissionRequests { get; set; }
+        public DbSet<TemporaryPermission> TemporaryPermissions { get; set; }
+        public DbSet<ProblemType> ProblemTypes { get; set; } // Thêm DbSet mới
 
         protected override void OnModelCreating(ModelBuilder builder)
         {
             base.OnModelCreating(builder);
 
-            // Configure Ticket relationships
-            builder.Entity<Ticket>()
-                .HasOne(t => t.Customer)
-                .WithMany()
-                .HasForeignKey(t => t.CustomerId)
-                .OnDelete(DeleteBehavior.Restrict);
+            builder.Entity<TechnicianGroup>().HasKey(tg => new { tg.UserId, tg.GroupId });
+            builder.Entity<Group>().HasIndex(g => g.Name).IsUnique();
+            builder.Entity<Status>().HasIndex(s => s.Name).IsUnique();
+            builder.Entity<TemporaryPermission>().HasIndex(tp => new { tp.UserId, tp.ClaimType, tp.ClaimValue });
+            builder.Entity<ProblemType>().HasIndex(p => p.Name).IsUnique(); // Thêm index cho ProblemType
 
+            // Mặc định: Không xóa xếp tầng từ ApplicationUser. Việc xóa người dùng phải do AdminService xử lý.
+            foreach (var fk in builder.Model.GetEntityTypes().SelectMany(e => e.GetForeignKeys()).Where(fk => fk.PrincipalEntityType.ClrType == typeof(ApplicationUser)))
+            {
+                fk.DeleteBehavior = DeleteBehavior.Restrict;
+            }
+            
+            // Xóa Ticket sẽ xóa các Comment và Attachment liên quan
             builder.Entity<Ticket>()
-                .HasOne(t => t.Assignee)
-                .WithMany()
-                .HasForeignKey(t => t.AssigneeId)
-                .OnDelete(DeleteBehavior.SetNull);
-
-            builder.Entity<Ticket>()
-                .HasOne(t => t.Group)
-                .WithMany()
-                .HasForeignKey(t => t.GroupId)
-                .OnDelete(DeleteBehavior.SetNull);
-
-            builder.Entity<Ticket>()
-                .HasOne(t => t.Status)
-                .WithMany()
-                .HasForeignKey(t => t.StatusId);
-
-            // Configure Comment relationships
-            builder.Entity<Comment>()
-                .HasOne(c => c.Ticket)
-                .WithMany(t => t.Comments) // Sửa đổi ở đây
+                .HasMany(t => t.Comments)
+                .WithOne(c => c.Ticket)
                 .HasForeignKey(c => c.TicketId)
                 .OnDelete(DeleteBehavior.Cascade);
 
-            builder.Entity<Comment>()
-                .HasOne(c => c.User)
-                .WithMany()
-                .HasForeignKey(c => c.UserId)
-                .OnDelete(DeleteBehavior.Restrict);
-
-            // Configure Attachment relationships
-            builder.Entity<Attachment>()
-                .HasOne(a => a.Ticket)
-                .WithMany(t => t.Attachments) // Sửa đổi ở đây
+            builder.Entity<Ticket>()
+                .HasMany(t => t.Attachments)
+                .WithOne(a => a.Ticket)
                 .HasForeignKey(a => a.TicketId)
-                .OnDelete(DeleteBehavior.Cascade); // Thay đổi thành Cascade để khi xóa ticket thì xóa attachment
+                .OnDelete(DeleteBehavior.Cascade);
 
-            builder.Entity<Attachment>()
-                .HasOne(a => a.Comment)
-                .WithMany()
+            // SỬA LỖI: Thay đổi quy tắc xóa cho Comment -> Attachment
+            // để phá vỡ chuỗi cascade delete.
+            // Hành vi mặc định sẽ là Restrict (NO ACTION), ngăn việc xóa Comment
+            // nếu nó vẫn còn Attachment liên quan.
+            builder.Entity<Comment>()
+                .HasMany<Attachment>() // Một comment có nhiều attachment
+                .WithOne(a => a.Comment) 
                 .HasForeignKey(a => a.CommentId)
+                .IsRequired(false) 
+                .OnDelete(DeleteBehavior.Restrict); // THAY ĐỔI TỪ Cascade -> Restrict
+
+            builder.Entity<Ticket>().HasOne(t => t.Assignee).WithMany().HasForeignKey(t => t.AssigneeId).OnDelete(DeleteBehavior.SetNull);
+            builder.Entity<Ticket>().HasOne(t => t.Group).WithMany().HasForeignKey(t => t.GroupId).OnDelete(DeleteBehavior.SetNull);
+            builder.Entity<Ticket>().HasOne(t => t.ProblemType).WithMany().HasForeignKey(t => t.ProblemTypeId).OnDelete(DeleteBehavior.SetNull); // Thêm quan hệ cho Ticket và ProblemType
+
+            // Khi một Group bị xóa, set GroupId trong ProblemType thành NULL
+            builder.Entity<ProblemType>()
+                .HasOne(p => p.Group)
+                .WithMany()
+                .HasForeignKey(p => p.GroupId)
                 .OnDelete(DeleteBehavior.SetNull);
 
-            builder.Entity<Attachment>()
-                .HasOne(a => a.UploadedBy)
-                .WithMany()
-                .HasForeignKey(a => a.UploadedById)
-                .OnDelete(DeleteBehavior.Restrict);
-
-            // Configure TechnicianGroup composite key
-            builder.Entity<TechnicianGroup>()
-                .HasKey(tg => new { tg.UserId, tg.GroupId });
-
-            builder.Entity<TechnicianGroup>()
-                .HasOne(tg => tg.User)
-                .WithMany()
-                .HasForeignKey(tg => tg.UserId)
-                .OnDelete(DeleteBehavior.Cascade);
-
-            builder.Entity<TechnicianGroup>()
-                .HasOne(tg => tg.Group)
-                .WithMany()
-                .HasForeignKey(tg => tg.GroupId)
-                .OnDelete(DeleteBehavior.Cascade);
-
-            // Configure unique constraints
-            builder.Entity<Group>()
-                .HasIndex(g => g.Name)
-                .IsUnique();
-
-            builder.Entity<Status>()
-                .HasIndex(s => s.Name)
-                .IsUnique();
-
-            // Configure check constraint for Priority
             builder.Entity<Ticket>()
                 .Property(t => t.Priority)
                 .HasConversion<string>()

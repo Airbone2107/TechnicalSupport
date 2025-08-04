@@ -1,3 +1,6 @@
+using TechnicalSupport.Application.Features.Attachments.DTOs;
+using TechnicalSupport.Application.Features.Groups.DTOs;
+
 namespace TechnicalSupport.Application.Features.Tickets.DTOs
 {
     public class TicketDto
@@ -12,5 +15,10 @@ namespace TechnicalSupport.Application.Features.Tickets.DTOs
         public StatusDto Status { get; set; }
         public UserDto Customer { get; set; }
         public UserDto? Assignee { get; set; }
+        public GroupDto? Group { get; set; }
+        
+        // Thêm các thuộc tính mới
+        public List<CommentDto> Comments { get; set; } = new();
+        public List<AttachmentDto> Attachments { get; set; } = new();
     }
-} 
+}

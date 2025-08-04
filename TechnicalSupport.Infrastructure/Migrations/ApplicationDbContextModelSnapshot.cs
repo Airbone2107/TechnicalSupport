@@ -328,6 +328,86 @@ namespace TechnicalSupport.Infrastructure.Migrations
                     b.ToTable("Groups");
                 });
 
+            modelBuilder.Entity("TechnicalSupport.Domain.Entities.PermissionRequest", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("Justification")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<DateTime?>("ProcessedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("ProcessorId")
+                        .HasColumnType("nvarchar(450)");
+
+                    b.Property<string>("ProcessorNotes")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("RequestedPermission")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("RequesterId")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(450)");
+
+                    b.Property<string>("ResourceId")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("ResourceType")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<int>("Status")
+                        .HasColumnType("int");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ProcessorId");
+
+                    b.HasIndex("RequesterId");
+
+                    b.ToTable("PermissionRequests");
+                });
+
+            modelBuilder.Entity("TechnicalSupport.Domain.Entities.ProblemType", b =>
+                {
+                    b.Property<int>("ProblemTypeId")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("ProblemTypeId"));
+
+                    b.Property<string>("Description")
+                        .HasMaxLength(255)
+                        .HasColumnType("nvarchar(255)");
+
+                    b.Property<int?>("GroupId")
+                        .HasColumnType("int");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.HasKey("ProblemTypeId");
+
+                    b.HasIndex("GroupId");
+
+                    b.HasIndex("Name")
+                        .IsUnique();
+
+                    b.ToTable("ProblemTypes");
+                });
+
             modelBuilder.Entity("TechnicalSupport.Domain.Entities.Status", b =>
                 {
                     b.Property<int>("StatusId")
@@ -362,6 +442,36 @@ namespace TechnicalSupport.Infrastructure.Migrations
                     b.HasIndex("GroupId");
 
                     b.ToTable("TechnicianGroups");
+                });
+
+            modelBuilder.Entity("TechnicalSupport.Domain.Entities.TemporaryPermission", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("ClaimType")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(450)");
+
+                    b.Property<string>("ClaimValue")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(450)");
+
+                    b.Property<DateTime>("ExpirationAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("UserId")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(450)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("UserId", "ClaimType", "ClaimValue");
+
+                    b.ToTable("TemporaryPermissions");
                 });
 
             modelBuilder.Entity("TechnicalSupport.Domain.Entities.Ticket", b =>
@@ -399,6 +509,9 @@ namespace TechnicalSupport.Infrastructure.Migrations
                         .HasColumnType("nvarchar(20)")
                         .HasDefaultValue("Medium");
 
+                    b.Property<int?>("ProblemTypeId")
+                        .HasColumnType("int");
+
                     b.Property<int>("StatusId")
                         .HasColumnType("int");
 
@@ -417,6 +530,8 @@ namespace TechnicalSupport.Infrastructure.Migrations
                     b.HasIndex("CustomerId");
 
                     b.HasIndex("GroupId");
+
+                    b.HasIndex("ProblemTypeId");
 
                     b.HasIndex("StatusId");
 
@@ -437,7 +552,7 @@ namespace TechnicalSupport.Infrastructure.Migrations
                     b.HasOne("TechnicalSupport.Domain.Entities.ApplicationUser", null)
                         .WithMany()
                         .HasForeignKey("UserId")
-                        .OnDelete(DeleteBehavior.Cascade)
+                        .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
                 });
 
@@ -446,7 +561,7 @@ namespace TechnicalSupport.Infrastructure.Migrations
                     b.HasOne("TechnicalSupport.Domain.Entities.ApplicationUser", null)
                         .WithMany()
                         .HasForeignKey("UserId")
-                        .OnDelete(DeleteBehavior.Cascade)
+                        .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
                 });
 
@@ -461,7 +576,7 @@ namespace TechnicalSupport.Infrastructure.Migrations
                     b.HasOne("TechnicalSupport.Domain.Entities.ApplicationUser", null)
                         .WithMany()
                         .HasForeignKey("UserId")
-                        .OnDelete(DeleteBehavior.Cascade)
+                        .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
                 });
 
@@ -470,7 +585,7 @@ namespace TechnicalSupport.Infrastructure.Migrations
                     b.HasOne("TechnicalSupport.Domain.Entities.ApplicationUser", null)
                         .WithMany()
                         .HasForeignKey("UserId")
-                        .OnDelete(DeleteBehavior.Cascade)
+                        .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
                 });
 
@@ -479,7 +594,7 @@ namespace TechnicalSupport.Infrastructure.Migrations
                     b.HasOne("TechnicalSupport.Domain.Entities.Comment", "Comment")
                         .WithMany()
                         .HasForeignKey("CommentId")
-                        .OnDelete(DeleteBehavior.SetNull);
+                        .OnDelete(DeleteBehavior.Restrict);
 
                     b.HasOne("TechnicalSupport.Domain.Entities.Ticket", "Ticket")
                         .WithMany("Attachments")
@@ -519,6 +634,34 @@ namespace TechnicalSupport.Infrastructure.Migrations
                     b.Navigation("User");
                 });
 
+            modelBuilder.Entity("TechnicalSupport.Domain.Entities.PermissionRequest", b =>
+                {
+                    b.HasOne("TechnicalSupport.Domain.Entities.ApplicationUser", "Processor")
+                        .WithMany()
+                        .HasForeignKey("ProcessorId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("TechnicalSupport.Domain.Entities.ApplicationUser", "Requester")
+                        .WithMany()
+                        .HasForeignKey("RequesterId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("Processor");
+
+                    b.Navigation("Requester");
+                });
+
+            modelBuilder.Entity("TechnicalSupport.Domain.Entities.ProblemType", b =>
+                {
+                    b.HasOne("TechnicalSupport.Domain.Entities.Group", "Group")
+                        .WithMany()
+                        .HasForeignKey("GroupId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.Navigation("Group");
+                });
+
             modelBuilder.Entity("TechnicalSupport.Domain.Entities.TechnicianGroup", b =>
                 {
                     b.HasOne("TechnicalSupport.Domain.Entities.Group", "Group")
@@ -530,10 +673,21 @@ namespace TechnicalSupport.Infrastructure.Migrations
                     b.HasOne("TechnicalSupport.Domain.Entities.ApplicationUser", "User")
                         .WithMany()
                         .HasForeignKey("UserId")
-                        .OnDelete(DeleteBehavior.Cascade)
+                        .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
 
                     b.Navigation("Group");
+
+                    b.Navigation("User");
+                });
+
+            modelBuilder.Entity("TechnicalSupport.Domain.Entities.TemporaryPermission", b =>
+                {
+                    b.HasOne("TechnicalSupport.Domain.Entities.ApplicationUser", "User")
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
 
                     b.Navigation("User");
                 });
@@ -556,6 +710,11 @@ namespace TechnicalSupport.Infrastructure.Migrations
                         .HasForeignKey("GroupId")
                         .OnDelete(DeleteBehavior.SetNull);
 
+                    b.HasOne("TechnicalSupport.Domain.Entities.ProblemType", "ProblemType")
+                        .WithMany()
+                        .HasForeignKey("ProblemTypeId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
                     b.HasOne("TechnicalSupport.Domain.Entities.Status", "Status")
                         .WithMany()
                         .HasForeignKey("StatusId")
@@ -567,6 +726,8 @@ namespace TechnicalSupport.Infrastructure.Migrations
                     b.Navigation("Customer");
 
                     b.Navigation("Group");
+
+                    b.Navigation("ProblemType");
 
                     b.Navigation("Status");
                 });

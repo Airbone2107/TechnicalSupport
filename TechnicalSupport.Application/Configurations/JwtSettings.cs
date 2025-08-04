@@ -1,4 +1,3 @@
-// TechnicalSupport.Application/Configurations/JwtSettings.cs
 namespace TechnicalSupport.Application.Configurations
 {
     public class JwtSettings

@@ -14,8 +14,8 @@ namespace TechnicalSupport.Application.Features.Tickets.Validators
             RuleFor(x => x.Description)
                 .NotEmpty().WithMessage("Description is required.");
 
-            RuleFor(x => x.StatusId)
-                .GreaterThan(0).WithMessage("A valid StatusId is required.");
+            RuleFor(x => x.ProblemTypeId)
+                .NotNull().WithMessage("A Problem Type must be selected.");
         }
     }
 } 

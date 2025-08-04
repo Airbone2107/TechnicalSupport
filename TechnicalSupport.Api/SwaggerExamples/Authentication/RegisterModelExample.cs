@@ -20,13 +20,13 @@ namespace TechnicalSupport.Api.SwaggerExamples.Authentication
             );
 
             yield return SwaggerExample.Create(
-                "Register a new Technician",
+                "Register a new Agent",
                 new RegisterModel
                 {
                     Email = "new.tech@example.com",
                     Password = "Password123!",
-                    DisplayName = "New Test Technician",
-                    Role = "Technician",
+                    DisplayName = "New Test Agent",
+                    Role = "Agent",
                     Expertise = "Hardware"
                 }
             );
