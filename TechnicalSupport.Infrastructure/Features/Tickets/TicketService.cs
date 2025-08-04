@@ -6,11 +6,13 @@ using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
 using System.Security.Claims;
+using TechnicalSupport.Application.Authorization;
 using TechnicalSupport.Application.Common;
 using TechnicalSupport.Application.Extensions;
 using TechnicalSupport.Application.Features.Tickets.Abstractions;
 using TechnicalSupport.Application.Features.Tickets.DTOs;
 using TechnicalSupport.Domain.Entities;
+using TechnicalSupport.Domain.Enums;
 using TechnicalSupport.Infrastructure.Persistence;
 using TechnicalSupport.Infrastructure.Realtime;
 
@@ -47,7 +49,7 @@ namespace TechnicalSupport.Infrastructure.Features.Tickets
         {
             var userPrincipal = GetCurrentUser();
             var userId = _userManager.GetUserId(userPrincipal);
-            
+
             IQueryable<Ticket> query = _context.Tickets
                 .Include(t => t.Status)
                 .Include(t => t.Customer)
@@ -55,14 +57,20 @@ namespace TechnicalSupport.Infrastructure.Features.Tickets
                 .Include(t => t.Group)
                 .OrderByDescending(t => t.UpdatedAt);
 
-            // Logic cũ cho createdByMe vẫn được giữ lại để phục vụ các chức năng khác
+            // Lọc theo ticket do người dùng tạo
             if (filterParams.CreatedByMe == true)
             {
                 query = query.Where(t => t.CustomerId == userId);
             }
 
-            // Logic lọc theo nhóm của user
-            if (filterParams.TicketForMyGroup == true)
+            // Lọc theo ticket được gán cho người dùng hiện tại
+            if (filterParams.MyTicket == true)
+            {
+                query = query.Where(t => t.AssigneeId == userId);
+            }
+
+            // Lọc theo ticket thuộc nhóm của người dùng
+            if (filterParams.MyGroupTicket == true)
             {
                 var userGroupIds = await _context.TechnicianGroups
                                 .Where(tg => tg.UserId == userId)
@@ -71,24 +79,18 @@ namespace TechnicalSupport.Infrastructure.Features.Tickets
 
                 query = query.Where(t => t.GroupId.HasValue && userGroupIds.Contains(t.GroupId.Value));
             }
-            
-            // Logic lọc theo ticket được gán cho user hiện tại
-            if (!string.IsNullOrWhiteSpace(filterParams.AssigneeId))
+
+            // Lọc theo danh sách tên trạng thái (List<string>)
+            if (filterParams.Statuses != null && filterParams.Statuses.Any())
             {
-                query = query.Where(t => t.AssigneeId == filterParams.AssigneeId);
+                query = query.Where(t => filterParams.Statuses.Contains(t.Status.Name));
             }
-            
-            // Logic lọc theo danh sách trạng thái
-            if (filterParams.StatusIds != null && filterParams.StatusIds.Any())
-            {
-                query = query.Where(t => filterParams.StatusIds.Contains(t.StatusId));
-            }
-            
+
             if (!string.IsNullOrWhiteSpace(filterParams.Priority))
             {
                 query = query.Where(t => t.Priority == filterParams.Priority);
             }
-            
+
             if (filterParams.UnassignedToGroupOnly == true)
             {
                 query = query.Where(t => !t.GroupId.HasValue);
@@ -102,14 +104,13 @@ namespace TechnicalSupport.Infrastructure.Features.Tickets
                     t.Description.ToLower().Contains(searchTerm) ||
                     t.TicketId.ToString().Contains(searchTerm));
             }
-            
+
             return await query
                 .AsNoTracking()
                 .ProjectTo<TicketDto>(_mapper.ConfigurationProvider)
                 .ToPagedResultAsync(filterParams.PageNumber, filterParams.PageSize);
         }
 
-        // ... các phương thức khác không thay đổi ...
         public async Task<TicketDto?> GetTicketByIdAsync(int id)
         {
             var ticket = await _context.Tickets
@@ -127,7 +128,8 @@ namespace TechnicalSupport.Infrastructure.Features.Tickets
                 return null;
             }
 
-            var authResult = await _authorizationService.AuthorizeAsync(GetCurrentUser(), ticket, "Read");
+            // SỬA LỖI: Thay thế chuỗi "Read" bằng đối tượng Operations.Read
+            var authResult = await _authorizationService.AuthorizeAsync(GetCurrentUser(), ticket, Operations.Read);
             if (!authResult.Succeeded)
             {
                 throw new UnauthorizedAccessException("User is not authorized to view this ticket.");
@@ -144,7 +146,14 @@ namespace TechnicalSupport.Infrastructure.Features.Tickets
 
             var ticket = _mapper.Map<Ticket>(model);
             ticket.CustomerId = customerId;
-            ticket.StatusId = 1; // Mặc định là "Open"
+
+            var openStatus = await _context.Statuses.FirstOrDefaultAsync(s => s.Name == nameof(TicketStatusEnum.Open));
+            if (openStatus == null)
+            {
+                throw new InvalidOperationException("Default 'Open' status not found in the database.");
+            }
+            ticket.StatusId = openStatus.StatusId;
+
             ticket.GroupId = problemType?.GroupId;
 
             _context.Tickets.Add(ticket);
@@ -199,7 +208,7 @@ namespace TechnicalSupport.Infrastructure.Features.Tickets
         {
             var ticket = await _context.Tickets.FindAsync(ticketId);
             if (ticket == null) throw new KeyNotFoundException("Ticket not found.");
-            
+
             var userToAssign = await _userManager.FindByIdAsync(model.AssigneeId);
             if (userToAssign == null) throw new InvalidOperationException("User to assign not found.");
 
@@ -237,10 +246,10 @@ namespace TechnicalSupport.Infrastructure.Features.Tickets
             {
                 return (false, "Ticket not found.");
             }
-            
+
             _context.Tickets.Remove(ticket);
             await _context.SaveChangesAsync();
-            
+
             return (true, "Ticket deleted successfully.");
         }
 
@@ -261,7 +270,7 @@ namespace TechnicalSupport.Infrastructure.Features.Tickets
 
         public async Task<TicketDto> RejectFromGroupAsync(int ticketId)
         {
-             var ticket = await _context.Tickets.FindAsync(ticketId);
+            var ticket = await _context.Tickets.FindAsync(ticketId);
             if (ticket == null) throw new KeyNotFoundException("Ticket not found.");
 
             ticket.GroupId = null;

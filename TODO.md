@@ -1,590 +1,304 @@
-# TODO: Tái cấu trúc Trang Ticket Queue
+Chào bạn, để cập nhật giao diện và thêm chức năng phân trang cho danh sách Ticket, chúng ta cần chỉnh sửa một vài tệp ở phía giao diện người dùng (frontend). Dưới đây là các tệp đã được cập nhật với đầy đủ code.
 
-Tài liệu này là hướng dẫn từng bước để triển khai các thay đổi được nêu trong `Plan.md`. Mục tiêu là tái cấu trúc giao diện và backend của trang Ticket Queue để phân luồng công việc tốt hơn cho Agent và Ticket Manager.
+### Tóm tắt các thay đổi:
 
-## Giai đoạn 1: Cập nhật Backend
+1.  **`technical-support-ui/src/features/tickets/routes/TicketQueuePage.tsx`**:
+    *   Thêm state để quản lý trang hiện tại (`page`) và tổng số ticket (`totalCount`).
+    *   Cập nhật hàm `fetchTickets` để gửi thông tin phân trang (`pageNumber`, `pageSize`) lên API.
+    *   Lưu lại tổng số ticket từ phản hồi của API để tính toán số trang.
+    *   Thêm component `<Pagination>` của Material-UI để người dùng có thể chuyển trang.
+    *   Reset về trang đầu tiên mỗi khi người dùng thay đổi tab hoặc bộ lọc để đảm bảo trải nghiệm người dùng nhất quán.
 
-Mục tiêu của giai đoạn này là nâng cấp API để hỗ trợ các yêu cầu lọc phức tạp hơn, đặc biệt là lọc theo nhiều trạng thái cùng lúc và lọc ticket theo nhóm của người dùng.
+2.  **`technical-support-ui/src/features/tickets/routes/MyTicketsPage.tsx`**:
+    *   Thực hiện các thay đổi tương tự như trang `TicketQueuePage` để thêm chức năng phân trang vào danh sách "My Tickets", đảm bảo tính đồng bộ trên toàn ứng dụng.
 
----
+Bạn chỉ cần sao chép và dán nội dung của các tệp dưới đây để áp dụng thay đổi.
 
-### **Bước 1.1: Mở rộng `TicketFilterParams.cs`**
+### Các tệp đã được cập nhật:
 
-Chúng ta sẽ cập nhật `TicketFilterParams.cs` để API có thể nhận được một danh sách các ID trạng thái thay vì chỉ một, và thêm một cờ boolean để lọc ticket theo nhóm của người dùng.
-
-**File cần thay đổi:** `TechnicalSupport.Application/Common/TicketFilterParams.cs`
-
-**Nội dung mới:**
-```csharp
-// TechnicalSupport.Application/Common/TicketFilterParams.cs
-namespace TechnicalSupport.Application.Common
-{
-    public class TicketFilterParams : PaginationParams
-    {
-        /// <summary>
-        /// Danh sách các ID trạng thái để lọc. Thay thế cho StatusId.
-        /// </summary>
-        public List<int>? StatusIds { get; set; }
-        
-        public string? Priority { get; set; }
-        public string? AssigneeId { get; set; }
-        public string? SearchQuery { get; set; }
-        public bool? UnassignedToGroupOnly { get; set; }
-        public bool? CreatedByMe { get; set; }
-
-        /// <summary>
-        /// Nếu true, chỉ trả về các ticket thuộc các nhóm mà người dùng hiện tại là thành viên.
-        /// </summary>
-        public bool? TicketForMyGroup { get; set; }
-
-        // Thuộc tính `StatusId` không còn được sử dụng và đã được loại bỏ.
-    }
-}
-```
-
----
-
-### **Bước 1.2: Cập nhật logic lọc trong `TicketService.cs`**
-
-Bây giờ, chúng ta sẽ cập nhật phương thức `GetTicketsAsync` trong `TicketService.cs` để sử dụng các tham số mới. Logic sẽ được sửa đổi để lọc theo `StatusIds` và `TicketForMyGroup`.
-
-**File cần thay đổi:** `TechnicalSupport.Infrastructure/Features/Tickets/TicketService.cs`
-
-**Nội dung mới:**
-```csharp
-// TechnicalSupport.Infrastructure/Features/Tickets/TicketService.cs
-using AutoMapper;
-using AutoMapper.QueryableExtensions;
-using Microsoft.AspNetCore.Authorization;
-using Microsoft.AspNetCore.Http;
-using Microsoft.AspNetCore.Identity;
-using Microsoft.AspNetCore.SignalR;
-using Microsoft.EntityFrameworkCore;
-using System.Security.Claims;
-using TechnicalSupport.Application.Common;
-using TechnicalSupport.Application.Extensions;
-using TechnicalSupport.Application.Features.Tickets.Abstractions;
-using TechnicalSupport.Application.Features.Tickets.DTOs;
-using TechnicalSupport.Domain.Entities;
-using TechnicalSupport.Infrastructure.Persistence;
-using TechnicalSupport.Infrastructure.Realtime;
-
-namespace TechnicalSupport.Infrastructure.Features.Tickets
-{
-    public partial class TicketService : ITicketService
-    {
-        private readonly ApplicationDbContext _context;
-        private readonly UserManager<ApplicationUser> _userManager;
-        private readonly IHubContext<TicketHub> _hubContext;
-        private readonly IMapper _mapper;
-        private readonly IAuthorizationService _authorizationService;
-        private readonly IHttpContextAccessor _httpContextAccessor;
-
-        public TicketService(
-            ApplicationDbContext context,
-            UserManager<ApplicationUser> userManager,
-            IHubContext<TicketHub> hubContext,
-            IMapper mapper,
-            IAuthorizationService authorizationService,
-            IHttpContextAccessor httpContextAccessor)
-        {
-            _context = context;
-            _userManager = userManager;
-            _hubContext = hubContext;
-            _mapper = mapper;
-            _authorizationService = authorizationService;
-            _httpContextAccessor = httpContextAccessor;
-        }
-
-        private ClaimsPrincipal GetCurrentUser() => _httpContextAccessor.HttpContext.User;
-
-        public async Task<PagedResult<TicketDto>> GetTicketsAsync(TicketFilterParams filterParams)
-        {
-            var userPrincipal = GetCurrentUser();
-            var userId = _userManager.GetUserId(userPrincipal);
-            
-            IQueryable<Ticket> query = _context.Tickets
-                .Include(t => t.Status)
-                .Include(t => t.Customer)
-                .Include(t => t.Assignee)
-                .Include(t => t.Group)
-                .OrderByDescending(t => t.UpdatedAt);
-
-            // Logic cũ cho createdByMe vẫn được giữ lại để phục vụ các chức năng khác
-            if (filterParams.CreatedByMe == true)
-            {
-                query = query.Where(t => t.CustomerId == userId);
-            }
-
-            // Logic lọc theo nhóm của user
-            if (filterParams.TicketForMyGroup == true)
-            {
-                var userGroupIds = await _context.TechnicianGroups
-                                .Where(tg => tg.UserId == userId)
-                                .Select(tg => tg.GroupId)
-                                .ToListAsync();
-
-                query = query.Where(t => t.GroupId.HasValue && userGroupIds.Contains(t.GroupId.Value));
-            }
-            
-            // Logic lọc theo ticket được gán cho user hiện tại
-            if (!string.IsNullOrWhiteSpace(filterParams.AssigneeId))
-            {
-                query = query.Where(t => t.AssigneeId == filterParams.AssigneeId);
-            }
-            
-            // Logic lọc theo danh sách trạng thái
-            if (filterParams.StatusIds != null && filterParams.StatusIds.Any())
-            {
-                query = query.Where(t => filterParams.StatusIds.Contains(t.StatusId));
-            }
-            
-            if (!string.IsNullOrWhiteSpace(filterParams.Priority))
-            {
-                query = query.Where(t => t.Priority == filterParams.Priority);
-            }
-            
-            if (filterParams.UnassignedToGroupOnly == true)
-            {
-                query = query.Where(t => !t.GroupId.HasValue);
-            }
-
-            if (!string.IsNullOrWhiteSpace(filterParams.SearchQuery))
-            {
-                var searchTerm = filterParams.SearchQuery.ToLower();
-                query = query.Where(t =>
-                    t.Title.ToLower().Contains(searchTerm) ||
-                    t.Description.ToLower().Contains(searchTerm) ||
-                    t.TicketId.ToString().Contains(searchTerm));
-            }
-            
-            return await query
-                .AsNoTracking()
-                .ProjectTo<TicketDto>(_mapper.ConfigurationProvider)
-                .ToPagedResultAsync(filterParams.PageNumber, filterParams.PageSize);
-        }
-
-        // ... các phương thức khác không thay đổi ...
-        public async Task<TicketDto?> GetTicketByIdAsync(int id)
-        {
-            var ticket = await _context.Tickets
-                .Include(t => t.Status)
-                .Include(t => t.Customer)
-                .Include(t => t.Assignee)
-                .Include(t => t.Group)
-                .Include(t => t.Comments).ThenInclude(c => c.User)
-                .Include(t => t.Attachments).ThenInclude(a => a.UploadedBy)
-                .AsNoTracking()
-                .FirstOrDefaultAsync(t => t.TicketId == id);
-
-            if (ticket == null)
-            {
-                return null;
-            }
-
-            var authResult = await _authorizationService.AuthorizeAsync(GetCurrentUser(), ticket, "Read");
-            if (!authResult.Succeeded)
-            {
-                throw new UnauthorizedAccessException("User is not authorized to view this ticket.");
-            }
-
-            return _mapper.Map<TicketDto>(ticket);
-        }
-
-        public async Task<TicketDto> CreateTicketAsync(CreateTicketModel model)
-        {
-            var customerId = _userManager.GetUserId(GetCurrentUser());
-
-            var problemType = await _context.ProblemTypes.FindAsync(model.ProblemTypeId);
-
-            var ticket = _mapper.Map<Ticket>(model);
-            ticket.CustomerId = customerId;
-            ticket.StatusId = 1; // Mặc định là "Open"
-            ticket.GroupId = problemType?.GroupId;
-
-            _context.Tickets.Add(ticket);
-            await _context.SaveChangesAsync();
-
-            await _context.Entry(ticket).Reference(t => t.Status).LoadAsync();
-            await _context.Entry(ticket).Reference(t => t.Customer).LoadAsync();
-            await _context.Entry(ticket).Reference(t => t.Group).LoadAsync();
-
-            return _mapper.Map<TicketDto>(ticket);
-        }
-
-        public async Task<TicketDto?> UpdateTicketStatusAsync(int id, UpdateStatusModel model)
-        {
-            var ticket = await _context.Tickets.FindAsync(id);
-            if (ticket == null) return null;
-
-            ticket.StatusId = model.StatusId;
-            ticket.UpdatedAt = DateTime.UtcNow;
-
-            await _context.SaveChangesAsync();
-
-            await _hubContext.Clients.Group(id.ToString()).SendAsync("ReceiveStatusUpdate", id, model.StatusId);
-
-            return await GetTicketByIdAsync(id);
-        }
-
-        public async Task<CommentDto?> AddCommentAsync(int ticketId, AddCommentModel model)
-        {
-            var userId = _userManager.GetUserId(GetCurrentUser());
-            var user = await _userManager.FindByIdAsync(userId);
-
-            var comment = new Comment
-            {
-                TicketId = ticketId,
-                UserId = userId,
-                Content = model.Content
-            };
-
-            _context.Comments.Add(comment);
-            await _context.SaveChangesAsync();
-
-            var commentDto = _mapper.Map<CommentDto>(comment);
-            commentDto.User = _mapper.Map<UserDto>(user);
-
-            await _hubContext.Clients.Group(ticketId.ToString()).SendAsync("ReceiveNewMessage", commentDto);
-
-            return commentDto;
-        }
-
-        public async Task<TicketDto?> AssignTicketAsync(int ticketId, AssignTicketModel model)
-        {
-            var ticket = await _context.Tickets.FindAsync(ticketId);
-            if (ticket == null) throw new KeyNotFoundException("Ticket not found.");
-            
-            var userToAssign = await _userManager.FindByIdAsync(model.AssigneeId);
-            if (userToAssign == null) throw new InvalidOperationException("User to assign not found.");
-
-            ticket.AssigneeId = model.AssigneeId;
-            ticket.UpdatedAt = DateTime.UtcNow;
-
-            await _context.SaveChangesAsync();
-            await _hubContext.Clients.Group(ticketId.ToString()).SendAsync("TicketAssigned", ticketId, userToAssign.DisplayName);
-
-            return await GetTicketByIdAsync(ticketId);
-        }
-
-        public async Task<TicketDto?> AssignTicketToGroupAsync(int ticketId, AssignGroupModel model)
-        {
-            var ticket = await _context.Tickets.FindAsync(ticketId);
-            if (ticket == null) throw new KeyNotFoundException("Ticket not found.");
-
-            var groupToAssign = await _context.Groups.FindAsync(model.GroupId);
-            if (groupToAssign == null) throw new InvalidOperationException("Group to assign not found.");
-
-            ticket.GroupId = model.GroupId;
-            ticket.UpdatedAt = DateTime.UtcNow;
-
-            await _context.SaveChangesAsync();
-            await _hubContext.Clients.All.SendAsync("TicketAssignedToGroup", ticketId, groupToAssign.Name);
-
-
-            return await GetTicketByIdAsync(ticketId);
-        }
-
-        public async Task<(bool Success, string Message)> DeleteTicketAsync(int ticketId)
-        {
-            var ticket = await _context.Tickets.FindAsync(ticketId);
-            if (ticket == null)
-            {
-                return (false, "Ticket not found.");
-            }
-            
-            _context.Tickets.Remove(ticket);
-            await _context.SaveChangesAsync();
-            
-            return (true, "Ticket deleted successfully.");
-        }
-
-        public async Task<TicketDto> ClaimTicketAsync(int ticketId)
-        {
-            var ticket = await _context.Tickets.FindAsync(ticketId);
-            if (ticket == null) throw new KeyNotFoundException("Ticket not found.");
-
-            if (ticket.AssigneeId != null) throw new InvalidOperationException("Ticket is already assigned.");
-
-            var userId = _userManager.GetUserId(GetCurrentUser());
-            ticket.AssigneeId = userId;
-            ticket.UpdatedAt = DateTime.UtcNow;
-
-            await _context.SaveChangesAsync();
-            return await GetTicketByIdAsync(ticketId);
-        }
-
-        public async Task<TicketDto> RejectFromGroupAsync(int ticketId)
-        {
-             var ticket = await _context.Tickets.FindAsync(ticketId);
-            if (ticket == null) throw new KeyNotFoundException("Ticket not found.");
-
-            ticket.GroupId = null;
-            ticket.AssigneeId = null;
-            ticket.UpdatedAt = DateTime.UtcNow;
-
-            await _context.SaveChangesAsync();
-            return await GetTicketByIdAsync(ticketId);
-        }
-    }
-}
-```
-
----
-
-## Giai đoạn 2: Tái cấu trúc Frontend
-
-Đây là phần việc chính, thay đổi hoàn toàn giao diện và logic của trang `TicketQueuePage`.
-
----
-
-### **Bước 2.1: Cập nhật `TicketFilterParams` ở Frontend**
-
-Tương tự như backend, chúng ta cần cập nhật interface `TicketFilterParams` trong file `types/entities.ts` để client có thể gửi đúng tham số.
-
-**File cần thay đổi:** `technical-support-ui/src/types/entities.ts`
-
-**Nội dung mới:**
-```typescript
-// technical-support-ui/src/types/entities.ts
-export interface User {
-  id: string;
-  displayName: string;
-  email: string;
-  expertise?: string;
-}
-
-export interface Status {
-  statusId: number;
-  name: string;
-}
-
-export interface Group {
-  groupId: number;
-  name: string;
-  description?: string;
-}
-
-export interface ProblemType {
-  problemTypeId: number;
-  name: string;
-  description: string;
-  groupId?: number | null;
-}
-
-export interface Attachment {
-  attachmentId: number;
-  ticketId: number;
-  originalFileName: string;
-  storedPath: string;
-  fileType: string;
-  uploadedAt: string;
-  uploadedByDisplayName: string;
-}
-
-export interface Comment {
-  commentId: number;
-  ticketId: number;
-  content: string;
-  createdAt: string;
-  user: User;
-}
-
-export interface Ticket {
-  ticketId: number;
-  title: string;
-  description: string;
-  priority: 'Low' | 'Medium' | 'High';
-  createdAt: string;
-  updatedAt: string;
-  closedAt?: string | null;
-  status: Status;
-  customer: User;
-  assignee?: User | null;
-  group?: Group | null;
-  problemType?: ProblemType | null;
-  comments?: Comment[];
-  attachments?: Attachment[];
-}
-
-export interface PagedResult<T> {
-  items: T[];
-  pageNumber: number;
-  pageSize: number;
-  totalPages: number;
-  totalCount: number;
-}
-
-export interface PaginationParams {
-  pageNumber?: number;
-  pageSize?: number;
-}
-
-export interface TicketFilterParams extends PaginationParams {
-  statusIds?: number[]; // Thay đổi từ statusId: number
-  priority?: string;
-  assigneeId?: string;
-  searchQuery?: string;
-  unassignedToGroupOnly?: boolean;
-  createdByMe?: boolean;
-  ticketForMyGroup?: boolean; // Thêm thuộc tính mới
-}
-
-export interface UserDetail extends User {
-  roles: string[];
-  emailConfirmed: boolean;
-  lockoutEnd?: Date | null;
-}
-
-export interface PermissionRequest {
-  id: number;
-  requester: User;
-  requestedPermission: string;
-  justification: string;
-  status: 'Pending' | 'Approved' | 'Rejected';
-  processor?: User;
-  processedAt?: string;
-  processorNotes?: string;
-  createdAt: string;
-}
-
-export interface UserFilterParams extends PaginationParams {
-  role?: string;
-  displayNameQuery?: string;
-}
-```
-
----
-
-### **Bước 2.2: Tái cấu trúc hoàn toàn trang `TicketQueuePage`**
-
-Đây là bước quan trọng nhất. Chúng ta sẽ xóa bỏ logic cũ của trang `TicketQueuePage.tsx` và thay thế bằng hệ thống tab mới, logic gọi API linh hoạt và thanh tìm kiếm có điều kiện như đã mô tả trong `Plan.md`.
-
-**File cần thay đổi:** `technical-support-ui/src/features/tickets/routes/TicketQueuePage.tsx`
-
-**Nội dung mới:**
 ```tsx
-// technical-support-ui/src/features/tickets/routes/TicketQueuePage.tsx
-import React, { useEffect, useState, useCallback, useMemo } from 'react';
-import { useAuth } from 'contexts/AuthContext';
+// technical-support-ui/src/features/tickets/routes/MyTicketsPage.tsx
+import React, { useEffect, useState } from 'react';
+import { useNavigate, Link as RouterLink } from 'react-router-dom';
 import { getTickets } from '../api/ticketService';
-import { Ticket, TicketFilterParams, Status } from 'types/entities';
+import { Ticket, TicketFilterParams } from 'types/entities';
 import LoadingSpinner from 'components/LoadingSpinner';
-import TicketCard from '../components/TicketCard';
-import { Box, Typography, Paper, TextField, Select, MenuItem, FormControl, InputLabel, Button, Stack, Tabs, Tab } from '@mui/material';
+import { Box, Typography, Button, Stack, Card, CardActionArea, CardContent, Chip, Paper, Pagination } from '@mui/material';
+import AddIcon from '@mui/icons-material/Add';
 
-// Danh sách các trạng thái để hiển thị trong bộ lọc
-const ALL_STATUSES: Status[] = [
-  { statusId: 1, name: "Open" }, { statusId: 2, name: "In Progress" },
-  { statusId: 3, name: "Resolved" }, { statusId: 4, name: "Closed" },
-  { statusId: 5, name: "On Hold" },
-];
+type StatusColor = "info" | "warning" | "success" | "default" | "error";
 
-// Định nghĩa các tab và logic API tương ứng
-const TABS_CONFIG = {
-  // Tabs cho Agent & Manager
-  assigned: { label: 'Assigned Ticket', params: { statusIds: [1, 2, 5] }, assigneeRequired: true },
-  active: { label: 'Active Ticket', params: { ticketForMyGroup: true, statusIds: [1, 2] } },
-  onHold: { label: 'On Hold', params: { ticketForMyGroup: true, statusIds: [5] } },
-  archive: { label: 'Archive', params: { ticketForMyGroup: true, statusIds: [3, 4] } },
-  // Tabs chỉ dành cho Manager
-  unassigned: { label: 'Unassigned Ticket', params: { unassignedToGroupOnly: true }, managerOnly: true },
-  all: { label: 'All Ticket', params: {}, managerOnly: true },
+const statusMapping: Record<string, { color: StatusColor, borderColor: string }> = {
+  "Open": { color: "info", borderColor: 'info.main' },
+  "In Progress": { color: "warning", borderColor: 'warning.main' },
+  "Resolved": { color: "success", borderColor: 'success.main' },
+  "Closed": { color: "default", borderColor: 'grey.500' },
+  "On Hold": { color: "error", borderColor: 'error.main' },
 };
 
-type TabKey = keyof typeof TABS_CONFIG;
+const priorityMapping: Record<string, StatusColor> = {
+  "High": "error",
+  "Medium": "warning",
+  "Low": "success",
+};
+
+const PAGE_SIZE = 10;
+
+const MyTicketsPage: React.FC = () => {
+  const [tickets, setTickets] = useState<Ticket[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [page, setPage] = useState(1);
+  const [totalCount, setTotalCount] = useState(0);
+  const navigate = useNavigate();
+
+  useEffect(() => {
+    setLoading(true);
+    const params: TicketFilterParams = { 
+      pageNumber: page, 
+      pageSize: PAGE_SIZE,
+      createdByMe: true 
+    };
+    
+    getTickets(params)
+      .then((response) => {
+        if (response.succeeded) {
+          setTickets(response.data.items);
+          setTotalCount(response.data.totalCount);
+        } else {
+          console.error("Failed to fetch tickets:", response.message);
+          setTickets([]);
+          setTotalCount(0);
+        }
+      })
+      .catch((error) => console.error("Error fetching tickets:", error))
+      .finally(() => setLoading(false));
+  }, [page]);
+
+  const handlePageChange = (event: React.ChangeEvent<unknown>, value: number) => {
+    setPage(value);
+  };
+
+  const getStatusInfo = (statusName: string) => {
+    return statusMapping[statusName] || { color: "default", borderColor: 'grey.500' };
+  };
+
+  if (loading) return <LoadingSpinner message="Đang tải các ticket của bạn..." />;
+
+  return (
+    <Box>
+      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
+        <Typography variant="h4" component="h1">My Support Tickets</Typography>
+        <Button
+          component={RouterLink}
+          to="/tickets/new"
+          variant="contained"
+          startIcon={<AddIcon />}
+        >
+          Tạo Ticket Mới
+        </Button>
+      </Box>
+
+      {tickets.length === 0 ? (
+        <Paper sx={{ textAlign: 'center', p: 4 }}>
+          <Typography variant="h6">Bạn chưa tạo ticket nào.</Typography>
+          <Button component={RouterLink} to="/tickets/new" sx={{ mt: 2 }}>
+            Tạo ticket đầu tiên của bạn
+          </Button>
+        </Paper>
+      ) : (
+        <>
+            <Stack spacing={2}>
+            {tickets.map((t) => (
+                <Card 
+                key={t.ticketId} 
+                sx={{ borderLeft: 5, borderColor: getStatusInfo(t.status.name).borderColor }}
+                >
+                <CardActionArea onClick={() => navigate(`/tickets/${t.ticketId}`)}>
+                    <CardContent>
+                    <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                        <Typography variant="h6" component="h3" sx={{ mb: 1 }}>{t.title}</Typography>
+                        <Chip
+                        label={t.priority}
+                        color={priorityMapping[t.priority] || 'default'}
+                        size="small"
+                        />
+                    </Box>
+                    <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                        #{t.ticketId} &bull; Cập nhật lần cuối: {new Date(t.updatedAt).toLocaleString()}
+                    </Typography>
+                    <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <Chip
+                        label={t.status.name}
+                        color={getStatusInfo(t.status.name).color}
+                        variant="outlined"
+                        size="small"
+                        />
+                        <Typography variant="body2" color="text.secondary">
+                        Giao cho: {t.assignee?.displayName || 'Chưa gán'}
+                        </Typography>
+                    </Box>
+                    </CardContent>
+                </CardActionArea>
+                </Card>
+            ))}
+            </Stack>
+
+            {totalCount > PAGE_SIZE && (
+                <Box sx={{ display: 'flex', justifyContent: 'center', mt: 3, pb: 2 }}>
+                    <Pagination
+                        count={Math.ceil(totalCount / PAGE_SIZE)}
+                        page={page}
+                        onChange={handlePageChange}
+                        color="primary"
+                    />
+                </Box>
+            )}
+        </>
+      )}
+    </Box>
+  );
+};
+
+export default MyTicketsPage;
+```
+
+```tsx
+// technical-support-ui/src/features/tickets/routes/TicketQueuePage.tsx
+import React, { useEffect, useState, useCallback } from 'react';
+import { useAuth } from 'contexts/AuthContext';
+import { getTickets } from '../api/ticketService';
+import { Ticket, TicketFilterParams } from 'types/entities';
+import { TicketStatus } from 'types/enums';
+import LoadingSpinner from 'components/LoadingSpinner';
+import TicketCard from '../components/TicketCard';
+import { Box, Typography, Paper, TextField, Select, MenuItem, FormControl, InputLabel, Button, Stack, Tabs, Tab, Pagination } from '@mui/material';
+
+type TabValue = 'assigned' | 'active' | 'onHold' | 'archive' | 'unassigned' | 'all';
+
+const TICKET_PAGE_SIZE = 10;
 
 const TicketQueuePage: React.FC = () => {
   const { user, hasPermission } = useAuth();
   const [tickets, setTickets] = useState<Ticket[]>([]);
   const [loading, setLoading] = useState(true);
-  const [searchFilters, setSearchFilters] = useState<Pick<TicketFilterParams, 'searchQuery' | 'priority' | 'statusIds'>>({});
+  const [searchFilters, setSearchFilters] = useState<{ searchQuery?: string, priority?: string, statuses?: string[] }>({});
   
+  const [page, setPage] = useState(1);
+  const [totalCount, setTotalCount] = useState(0);
+
+  const isAgent = user?.roles.includes('Agent');
   const isTicketManager = hasPermission('tickets:assign_to_group');
-  
-  // Tab mặc định là 'assigned'
-  const [activeTab, setActiveTab] = useState<TabKey>('assigned');
 
-  // Logic gọi API chính
+  const agentTabs: { label: string; value: TabValue }[] = [
+    { label: 'Assigned to Me', value: 'assigned' },
+    { label: 'Active in My Groups', value: 'active' },
+    { label: 'On Hold in My Groups', value: 'onHold' },
+    { label: 'Archived in My Groups', value: 'archive' },
+  ];
+
+  const managerTabs: { label: string; value: TabValue }[] = [
+    { label: 'Unassigned', value: 'unassigned' },
+    { label: 'All Tickets', value: 'all' },
+  ];
+
+  const availableTabs = [
+    ...(isAgent ? agentTabs : []),
+    ...(isTicketManager ? managerTabs : []),
+  ];
+
+  const [activeTab, setActiveTab] = useState<TabValue>(availableTabs[0]?.value || 'assigned');
+
   const fetchTickets = useCallback(() => {
-    if (!user) return;
-
     setLoading(true);
 
-    const tabConfig = TABS_CONFIG[activeTab];
-    if (!tabConfig) return;
-
-    // Chỉ gọi API cho tab của manager nếu user có quyền
-    if (tabConfig.managerOnly && !isTicketManager) return;
-    
-    let baseParams: TicketFilterParams = { ...tabConfig.params };
-
-    // Gán assigneeId nếu tab yêu cầu
-    if (tabConfig.assigneeRequired) {
-      baseParams.assigneeId = user.nameid;
+    let tabParams: TicketFilterParams = {};
+    switch (activeTab) {
+      case 'assigned':
+        tabParams = { myTicket: true, statuses: [TicketStatus.Open, TicketStatus.InProgress, TicketStatus.OnHold] };
+        break;
+      case 'active':
+        tabParams = { myGroupTicket: true, statuses: [TicketStatus.Open, TicketStatus.InProgress] };
+        break;
+      case 'onHold':
+        tabParams = { myGroupTicket: true, statuses: [TicketStatus.OnHold] };
+        break;
+      case 'archive':
+        tabParams = { myGroupTicket: true, statuses: [TicketStatus.Resolved, TicketStatus.Closed] };
+        break;
+      case 'unassigned':
+        tabParams = { unassignedToGroupOnly: true };
+        break;
+      case 'all':
+        tabParams = {};
+        break;
     }
 
-    // Kết hợp tham số từ tab với tham số từ thanh tìm kiếm
     const finalParams: TicketFilterParams = {
-      ...baseParams,
       ...searchFilters,
-      pageNumber: 1,
-      pageSize: 100, // Lấy 100 ticket cho mỗi lần tải
+      ...tabParams,
+      pageNumber: page,
+      pageSize: TICKET_PAGE_SIZE,
     };
 
     getTickets(finalParams)
-      .then(res => setTickets(res.succeeded ? res.data.items : []))
+      .then(res => {
+          if (res.succeeded) {
+              setTickets(res.data.items);
+              setTotalCount(res.data.totalCount);
+          } else {
+              setTickets([]);
+              setTotalCount(0);
+          }
+      })
       .catch(err => {
         console.error("Error fetching tickets:", err);
         setTickets([]);
+        setTotalCount(0);
       })
       .finally(() => setLoading(false));
-  }, [activeTab, searchFilters, user, isTicketManager]);
+  }, [activeTab, searchFilters, page]);
 
-  // Gọi API khi tab hoặc bộ lọc thay đổi
   useEffect(() => {
     fetchTickets();
   }, [fetchTickets]);
 
-  // Xử lý thay đổi tab
-  const handleTabChange = (event: React.SyntheticEvent, newValue: TabKey) => {
-    setActiveTab(newValue);
-    // Reset bộ lọc tìm kiếm khi chuyển tab để tránh nhầm lẫn
-    setSearchFilters({}); 
-  };
-  
-  // Xử lý thay đổi trên thanh tìm kiếm
-  const handleSearchFilterChange = (e: React.ChangeEvent<HTMLInputElement | any>) => {
+  const handleFilterChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement> | any) => {
     const { name, value } = e.target;
+    setPage(1); // Reset page on filter change
     setSearchFilters(prev => ({ ...prev, [name]: value === "" ? undefined : value }));
   };
-  
-  const handleSearchOnEnter = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === 'Enter') {
+
+  const handleTabChange = (event: React.SyntheticEvent, newValue: TabValue) => {
+    setActiveTab(newValue);
+    setSearchFilters({});
+    setPage(1);
+  };
+
+  const handleSearch = () => {
+    if (page !== 1) {
+        setPage(1);
+    } else {
         fetchTickets();
     }
-  }
+  };
 
   const resetFilters = () => {
     setSearchFilters({});
+    setPage(1);
   };
 
-  // Danh sách các tab sẽ được render dựa trên quyền của người dùng
-  const availableTabs = useMemo(() => {
-    return (Object.keys(TABS_CONFIG) as TabKey[]).filter(key => 
-      !TABS_CONFIG[key].managerOnly || isTicketManager
-    );
-  }, [isTicketManager]);
-
+  const handlePageChange = (event: React.ChangeEvent<unknown>, value: number) => {
+    setPage(value);
+  };
 
   return (
     <Box>
       <Typography variant="h4" component="h1" gutterBottom>Ticket Queue</Typography>
 
       <Box sx={{ borderBottom: 1, borderColor: 'divider', mb: 2 }}>
-        <Tabs value={activeTab} onChange={handleTabChange} variant="scrollable" scrollButtons="auto">
-          {availableTabs.map(key => (
-            <Tab key={key} label={TABS_CONFIG[key].label} value={key} />
+        <Tabs value={activeTab} onChange={handleTabChange} variant="scrollable">
+          {availableTabs.map(tab => (
+            <Tab key={tab.value} label={tab.label} value={tab.value} />
           ))}
         </Tabs>
       </Box>
@@ -593,38 +307,43 @@ const TicketQueuePage: React.FC = () => {
         <Stack direction={{ xs: 'column', md: 'row' }} spacing={2} alignItems="center">
           <TextField 
             name="searchQuery" 
-            label="Search Keyword" 
+            label="Search by Keyword/ID" 
             variant="outlined"
             size="small"
             fullWidth
             value={searchFilters.searchQuery || ''} 
-            onChange={handleSearchFilterChange} 
-            onKeyDown={handleSearchOnEnter}
-            // Chỉ hiển thị ở những tab có ý nghĩa
-            disabled={activeTab === 'assigned'}
+            onChange={handleFilterChange} 
+            onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
           />
           <FormControl size="small" fullWidth>
             <InputLabel>Priority</InputLabel>
-            <Select name="priority" value={searchFilters.priority || ''} label="Priority" onChange={handleSearchFilterChange}>
+            <Select name="priority" value={searchFilters.priority || ''} label="Priority" onChange={handleFilterChange}>
               <MenuItem value="">All Priorities</MenuItem>
               <MenuItem value="Low">Low</MenuItem>
               <MenuItem value="Medium">Medium</MenuItem>
               <MenuItem value="High">High</MenuItem>
             </Select>
           </FormControl>
-          
-          {/* Chỉ hiển thị bộ lọc Status cho tab 'All' của Manager */}
+
           {isTicketManager && activeTab === 'all' && (
-            <FormControl size="small" fullWidth>
+             <FormControl size="small" fullWidth>
               <InputLabel>Status</InputLabel>
-              <Select name="statusIds" value={searchFilters.statusIds || ''} label="Status" onChange={handleSearchFilterChange}>
-                <MenuItem value="">All Statuses</MenuItem>
-                {ALL_STATUSES.map(s => <MenuItem key={s.statusId} value={s.statusId}>{s.name}</MenuItem>)}
+              <Select
+                name="statuses"
+                multiple
+                value={searchFilters.statuses || []}
+                label="Status"
+                onChange={handleFilterChange}
+                renderValue={(selected) => (selected as string[]).join(', ')}
+              >
+                {Object.values(TicketStatus).map(s => (
+                  <MenuItem key={s} value={s}>{s}</MenuItem>
+                ))}
               </Select>
             </FormControl>
           )}
 
-          <Button onClick={fetchTickets} variant="contained">Search</Button>
+          <Button onClick={handleSearch} variant="contained">Search</Button>
           <Button onClick={resetFilters} variant="outlined">Reset</Button>
         </Stack>
       </Paper>
@@ -632,15 +351,28 @@ const TicketQueuePage: React.FC = () => {
       {loading ? (
         <LoadingSpinner message="Loading ticket queue..." />
       ) : (
-        <Stack spacing={2}>
-          {tickets.length > 0 ? (
-            tickets.map(t => <TicketCard key={t.ticketId} ticket={t} />)
-          ) : (
-            <Paper sx={{ p: 4, textAlign: 'center' }}>
-              <Typography>No tickets found in this view.</Typography>
-            </Paper>
-          )}
-        </Stack>
+        <>
+            <Stack spacing={2}>
+            {tickets.length > 0 ? (
+                tickets.map(t => <TicketCard key={t.ticketId} ticket={t} />)
+            ) : (
+                <Paper sx={{ p: 4, textAlign: 'center' }}>
+                <Typography>No tickets found matching your criteria.</Typography>
+                </Paper>
+            )}
+            </Stack>
+
+            {totalCount > TICKET_PAGE_SIZE && (
+            <Box sx={{ display: 'flex', justifyContent: 'center', mt: 3, pb: 2 }}>
+                <Pagination
+                count={Math.ceil(totalCount / TICKET_PAGE_SIZE)}
+                page={page}
+                onChange={handlePageChange}
+                color="primary"
+                />
+            </Box>
+            )}
+        </>
       )}
     </Box>
   );
