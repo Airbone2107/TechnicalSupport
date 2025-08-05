@@ -29,11 +29,11 @@ namespace TechnicalSupport.Infrastructure.Authorization
             {
                 return;
             }
-            
+
             var userRoles = await _userManager.GetRolesAsync(user);
 
-            // Admin có mọi quyền
-            if (userRoles.Contains("Admin"))
+            // Admin hoặc Ticket Manager có quyền truy cập toàn bộ
+            if (userRoles.Contains("Admin") || userRoles.Contains("Ticket Manager"))
             {
                 context.Succeed(requirement);
                 return;
@@ -55,7 +55,7 @@ namespace TechnicalSupport.Infrastructure.Authorization
                     return;
                 }
             }
-            
+
             // 2. Kiểm tra quyền được giao (Assignee) và theo vai trò
             if (isAgent) // Bao gồm cả Manager và Admin (đã return)
             {
@@ -65,7 +65,7 @@ namespace TechnicalSupport.Infrastructure.Authorization
                     context.Succeed(requirement);
                     return;
                 }
-                
+
                 // Agent/Manager có thể thực hiện các hành động trên ticket được gán cho mình
                 if ((requirement.Name == TicketOperations.Update.Name ||
                      requirement.Name == TicketOperations.ChangeStatus.Name ||
@@ -99,8 +99,8 @@ namespace TechnicalSupport.Infrastructure.Authorization
                     // Manager có quyền Assign và ChangeStatus trên ticket của nhóm mình
                     if (isManager && (requirement.Name == TicketOperations.Assign.Name || requirement.Name == TicketOperations.ChangeStatus.Name))
                     {
-                         context.Succeed(requirement);
-                         return;
+                        context.Succeed(requirement);
+                        return;
                     }
                 }
             }
@@ -118,4 +118,4 @@ namespace TechnicalSupport.Infrastructure.Authorization
             }
         }
     }
-} 
+}

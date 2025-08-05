@@ -94,16 +94,23 @@ namespace TechnicalSupport.Api.Features.Admin
             return Ok(ApiResponse.Success<object>(null, message));
         }
 
+        // HÀM MỚI: Chỉ lấy những user có thể được gán vào group (Agent, Manager)
         [HttpGet("assignable-users")]
-        [Authorize(Policy = "AssignTickets")]
+        [Authorize(Policy = "ManageGroups")] // Yêu cầu quyền quản lý group để thấy danh sách này
         public async Task<IActionResult> GetAssignableUsers()
         {
-            var agents = await _userManager.GetUsersInRoleAsync("Agent");
-            var managers = await _userManager.GetUsersInRoleAsync("Manager");
+            // Lấy tất cả các vai trò được xem là có thể xử lý ticket
+            var assignableRoles = new[] {"Agent"};
+            
+            var assignableUsers = new List<ApplicationUser>();
+            foreach (var role in assignableRoles)
+            {
+                assignableUsers.AddRange(await _userManager.GetUsersInRoleAsync(role));
+            }
 
-            var assignableUsers = agents.Union(managers).DistinctBy(u => u.Id);
-
-            var userDtos = _mapper.Map<List<UserDto>>(assignableUsers);
+            // Lọc ra các user duy nhất và map sang DTO
+            var distinctUsers = assignableUsers.DistinctBy(u => u.Id);
+            var userDtos = _mapper.Map<List<UserDto>>(distinctUsers);
             
             return Ok(ApiResponse.Success(userDtos));
         }

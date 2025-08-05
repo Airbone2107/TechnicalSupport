@@ -54,8 +54,9 @@ namespace TechnicalSupport.Infrastructure.Features.Groups
             var user = await _userManager.FindByIdAsync(model.UserId);
             if (user == null) return (false, "User not found.");
 
-            var isTechnician = await _userManager.IsInRoleAsync(user, "Technician");
-            if (!isTechnician) return (false, "Only technicians can be added to a group.");
+            // SỬA LỖI CỐT LÕI: Thay "Technician" bằng "Agent"
+            var isAgent = await _userManager.IsInRoleAsync(user, "Agent");
+            if (!isAgent) return (false, "Only users with the 'Agent' role can be added to a group.");
 
             var alreadyMember = await _context.TechnicianGroups
                 .AnyAsync(tg => tg.GroupId == groupId && tg.UserId == model.UserId);
@@ -80,4 +81,4 @@ namespace TechnicalSupport.Infrastructure.Features.Groups
             return (true, "Member removed successfully.");
         }
     }
-} 
+}

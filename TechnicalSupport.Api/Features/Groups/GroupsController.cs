@@ -27,7 +27,7 @@ namespace TechnicalSupport.Api.Features.Groups
         }
 
         [HttpGet]
-        [Authorize(Policy = "AssignTickets")] // Nới lỏng quyền, chỉ cần quyền gán ticket
+        [Authorize(Policy = "ViewGroups")] // SỬA LỖI: Áp dụng policy mới, chính xác hơn
         public async Task<IActionResult> GetGroups()
         {
             var groups = await _groupService.GetAllGroupsAsync();

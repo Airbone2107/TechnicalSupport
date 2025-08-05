@@ -78,7 +78,7 @@ namespace TechnicalSupport.Api.Features.Authentication
 
             return Ok(ApiResponse.Success(response, "Login successful."));
         }
-        
+
         private string GenerateJwtToken(ApplicationUser user, IList<string> roles)
         {
             var claims = new List<Claim>
@@ -139,7 +139,7 @@ namespace TechnicalSupport.Api.Features.Authentication
                 permissions.Add("tickets:claim");
                 permissions.Add("permissions:request");
             }
-            
+
             // --- QUYỀN CỦA GROUP MANAGER ---
             // Group Manager là một Agent với quyền bổ sung
             if (roles.Contains("Group Manager"))
@@ -157,26 +157,39 @@ namespace TechnicalSupport.Api.Features.Authentication
                 permissions.Add("groups:manage");
                 permissions.Add("permissions:review");
             }
-            
+
             // --- QUYỀN CỦA TICKET MANAGER ---
-            // Ticket Manager cũng là một Agent
+            // Ticket Manager là vai trò song song với Agent.
             if (roles.Contains("Ticket Manager"))
             {
+                // Quyền cơ bản của một người dùng
+                permissions.Add("tickets:create");
+                permissions.Add("tickets:read_own");
+                permissions.Add("tickets:add_comment");
+
+                // Quyền quản lý ticket
+                permissions.Add("tickets:read_queue");
                 permissions.Add("tickets:read_all");
                 permissions.Add("tickets:assign_to_group");
+                permissions.Add("tickets:update_status");
                 permissions.Add("problemtypes:manage");
             }
 
             // --- ADMIN KẾ THỪA TẤT CẢ ---
             if (roles.Contains("Admin"))
             {
-                permissions.UnionWith(GetPermissionsForRoles(new[] { "Client", "Agent", "Group Manager", "Manager", "Ticket Manager" }));
-                // Quyền chỉ Admin mới có
-                permissions.Add("users:delete");
-                permissions.Add("tickets:delete");
+                // Gán tất cả các quyền đã biết một cách tường minh để đảm bảo an toàn và rõ ràng
+                permissions.UnionWith(new string[]
+                {
+                    "tickets:create", "tickets:read_own", "tickets:read_queue", "tickets:update_status",
+                    "tickets:add_comment", "tickets:claim", "permissions:request", "tickets:read_group",
+                    "tickets:assign_to_member", "tickets:reject_from_group", "users:manage", "users:read",
+                    "groups:manage", "permissions:review", "tickets:read_all", "tickets:assign_to_group",
+                    "problemtypes:manage", "users:delete", "tickets:delete"
+                });
             }
 
             return permissions;
         }
     }
-} 
+}

@@ -215,6 +215,8 @@ builder.Services.AddAuthorization(options =>
 
     // --- Groups ---
     options.AddPolicy("ManageGroups", policy => policy.RequireClaim("permissions", "groups:manage"));
+    // === SỬA LỖI: THÊM POLICY MỚI ĐỂ XEM DANH SÁCH NHÓM ===
+    options.AddPolicy("ViewGroups", policy => policy.RequireClaim("permissions", "groups:manage", "tickets:assign_to_group"));
 
     // --- Problem Types ---
     options.AddPolicy("ManageProblemTypes", policy => policy.RequireClaim("permissions", "problemtypes:manage"));
