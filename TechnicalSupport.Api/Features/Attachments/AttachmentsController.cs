@@ -7,17 +7,29 @@ using TechnicalSupport.Application.Features.Attachments.DTOs;
 
 namespace TechnicalSupport.Api.Features.Attachments
 {
+    /// <summary>
+    /// Quản lý các file đính kèm cho ticket.
+    /// </summary>
     [ApiController]
     [Authorize(Policy = "RequireAuthenticatedUser")]
     public class AttachmentsController : ControllerBase
     {
         private readonly IAttachmentService _attachmentService;
-
+        
+        /// <summary>
+        /// Khởi tạo một instance mới của AttachmentsController.
+        /// </summary>
         public AttachmentsController(IAttachmentService attachmentService)
         {
             _attachmentService = attachmentService;
         }
 
+        /// <summary>
+        /// Tải lên một hoặc nhiều file đính kèm cho một ticket.
+        /// </summary>
+        /// <param name="ticketId">ID của ticket cần đính kèm file.</param>
+        /// <param name="files">Bộ sưu tập các file được tải lên.</param>
+        /// <returns>Danh sách thông tin các file đã được tải lên thành công.</returns>
         [HttpPost("tickets/{ticketId}/attachments")]
         [ProducesResponseType(typeof(ApiResponse<List<AttachmentDto>>), 200)]
         [ProducesResponseType(typeof(ApiResponse<object>), 400)]
@@ -55,11 +67,15 @@ namespace TechnicalSupport.Api.Features.Attachments
             }
             catch (Exception)
             {
-                // Nên ghi log lỗi ở đây
                 return StatusCode(500, ApiResponse.Fail("An internal error occurred while uploading files."));
             }
         }
 
+        /// <summary>
+        /// Lấy danh sách các file đính kèm của một ticket.
+        /// </summary>
+        /// <param name="ticketId">ID của ticket.</param>
+        /// <returns>Danh sách các file đính kèm.</returns>
         [HttpGet("tickets/{ticketId}/attachments")]
         public async Task<IActionResult> GetAttachmentsForTicket(int ticketId)
         {
@@ -78,6 +94,11 @@ namespace TechnicalSupport.Api.Features.Attachments
             }
         }
 
+        /// <summary>
+        /// Tải về một file đính kèm.
+        /// </summary>
+        /// <param name="attachmentId">ID của file đính kèm.</param>
+        /// <returns>Nội dung file để tải về.</returns>
         [HttpGet("attachments/{attachmentId}")]
         public async Task<IActionResult> DownloadAttachment(int attachmentId)
         {
@@ -97,6 +118,11 @@ namespace TechnicalSupport.Api.Features.Attachments
             }
         }
 
+        /// <summary>
+        /// Xóa một file đính kèm.
+        /// </summary>
+        /// <param name="attachmentId">ID của file đính kèm cần xóa.</param>
+        /// <returns>Thông báo thành công.</returns>
         [HttpDelete("attachments/{attachmentId}")]
         public async Task<IActionResult> DeleteAttachment(int attachmentId)
         {

@@ -20,9 +20,7 @@ using TechnicalSupport.Application.Features.Attachments.Abstractions;
 using TechnicalSupport.Application.Features.Comments.Abstractions;
 using TechnicalSupport.Application.Features.Groups.Abstractions;
 using TechnicalSupport.Application.Features.Permissions.Abstractions;
-// Thêm using cho ProblemType Service
 using TechnicalSupport.Application.Features.ProblemTypes.Abstractions;
-// Import các Abstractions và Implementations từ cấu trúc mới
 using TechnicalSupport.Application.Features.Tickets.Abstractions;
 using TechnicalSupport.Application.Mappings;
 using TechnicalSupport.Domain.Entities;
@@ -40,7 +38,7 @@ using TechnicalSupport.Infrastructure.Realtime;
 
 var builder = WebApplication.CreateBuilder(args);
 
-// CẤU HÌNH STRONGLY-TYPED SETTINGS
+// Đăng ký các lớp cấu hình strongly-typed
 var jwtSettings = new JwtSettings();
 builder.Configuration.Bind(nameof(JwtSettings), jwtSettings);
 builder.Services.AddSingleton(jwtSettings);
@@ -49,14 +47,15 @@ var attachmentSettings = new AttachmentSettings();
 builder.Configuration.Bind(nameof(AttachmentSettings), attachmentSettings);
 builder.Services.AddSingleton(attachmentSettings);
 
-// Add services to the container.
+// Thêm các dịch vụ vào container
 builder.Services.AddControllers(options =>
 {
+    // Áp dụng bộ lọc validation cho tất cả các action
     options.Filters.Add<ValidationFilter>();
 });
 builder.Services.AddEndpointsApiExplorer();
 
-// CẤU HÌNH SWAGGER
+// Cấu hình Swagger/OpenAPI
 builder.Services.AddSwaggerGen(c =>
 {
     c.SwaggerDoc("v1", new OpenApiInfo { Title = "TechnicalSupport API", Version = "v1" });
@@ -86,17 +85,12 @@ builder.Services.AddSwaggerGen(c =>
         }
     });
 
-    // THÊM BỘ LỌC HEADER TÙY CHỈNH CHO CHẾ ĐỘ TEST
     c.OperationFilter<TestModeHeaderFilter>();
-
-    // Bật bộ lọc ví dụ
     c.ExampleFilters();
 });
-
-// Đăng ký các nhà cung cấp ví dụ từ assembly hiện tại
 builder.Services.AddSwaggerExamplesFromAssemblies(Assembly.GetEntryAssembly());
 
-// Configure CORS
+// Cấu hình CORS
 builder.Services.AddCors(options =>
 {
     options.AddPolicy("AllowReactApp",
@@ -105,21 +99,21 @@ builder.Services.AddCors(options =>
             policy.WithOrigins("http://localhost:3000") // URL của React app
                   .AllowAnyHeader()
                   .AllowAnyMethod()
-                  .AllowCredentials(); // RẤT QUAN TRỌNG CHO SIGNALR
+                  .AllowCredentials(); // Quan trọng cho SignalR
         });
 });
 
-// Configure DbContext
+// Cấu hình DbContext với SQL Server
 builder.Services.AddDbContext<ApplicationDbContext>(options =>
     options.UseSqlServer(builder.Configuration.GetConnectionString("DefaultConnection"),
         b => b.MigrationsAssembly("TechnicalSupport.Infrastructure")));
 
-// Configure Identity
+// Cấu hình ASP.NET Core Identity
 builder.Services.AddIdentity<ApplicationUser, IdentityRole>()
     .AddEntityFrameworkStores<ApplicationDbContext>()
     .AddDefaultTokenProviders();
 
-// Configure JWT Authentication
+// Cấu hình xác thực JWT
 builder.Services.AddAuthentication(options =>
 {
     options.DefaultAuthenticateScheme = JwtBearerDefaults.AuthenticationScheme;
@@ -140,26 +134,17 @@ builder.Services.AddAuthentication(options =>
 
     options.Events = new JwtBearerEvents
     {
-        // *** BẮT ĐẦU ĐOẠN MÃ MỚI ĐỂ SỬA LỖI ***
-        // *** START OF NEW CODE TO FIX THE BUG ***
-        // This code allows SignalR to authenticate via query string
+        // Cho phép SignalR xác thực qua query string, vì trình duyệt không gửi header 'Authorization' qua WebSocket.
         OnMessageReceived = context =>
         {
             var accessToken = context.Request.Query["access_token"];
-
-            // If the request is for our hub...
             var path = context.HttpContext.Request.Path;
-            if (!string.IsNullOrEmpty(accessToken) &&
-                (path.StartsWithSegments("/ticketHub")))
+            if (!string.IsNullOrEmpty(accessToken) && path.StartsWithSegments("/ticketHub"))
             {
-                // Read the token from the query string
                 context.Token = accessToken;
             }
             return Task.CompletedTask;
         },
-        // *** KẾT THÚC ĐOẠN MÃ MỚI ***
-        // *** END OF NEW CODE ***
-
         OnAuthenticationFailed = context =>
         {
             var logger = context.HttpContext.RequestServices.GetRequiredService<ILogger<Program>>();
@@ -181,81 +166,73 @@ builder.Services.AddAuthentication(options =>
     };
 });
 
-
-// === CẤU HÌNH AUTHORIZATION POLICIES ===
+// Cấu hình các chính sách (policies) phân quyền
 builder.Services.AddAuthorization(options =>
 {
     options.AddPolicy("RequireAuthenticatedUser", policy => policy.RequireAuthenticatedUser());
 
-    // --- Tickets ---
+    // Policies cho Tickets
     options.AddPolicy("CreateTickets", policy => policy.RequireClaim("permissions", "tickets:create"));
     options.AddPolicy("ReadOwnTickets", policy => policy.RequireClaim("permissions", "tickets:read_own"));
     options.AddPolicy("ReadTicketQueue", policy => policy.RequireClaim("permissions", "tickets:read_queue", "tickets:read_all"));
     options.AddPolicy("ReadAllTickets", policy => policy.RequireClaim("permissions", "tickets:read_all"));
     options.AddPolicy("ReadGroupTickets", policy => policy.RequireClaim("permissions", "tickets:read_group"));
     options.AddPolicy("UpdateTicketStatus", policy => policy.RequireClaim("permissions", "tickets:update_status"));
-
-    // Sửa lỗi: Đổi tên policy "AssignToMember", "AssignToGroup" thành một policy chung "AssignTickets"
-    // hoặc giữ riêng tùy logic. Ở đây ta giữ riêng để rõ ràng nhưng thêm một policy chung cho endpoint.
     options.AddPolicy("AssignTickets", policy => policy.RequireClaim("permissions", "tickets:assign_to_member", "tickets:assign_to_group"));
     options.AddPolicy("AssignToMember", policy => policy.RequireClaim("permissions", "tickets:assign_to_member"));
     options.AddPolicy("AssignToGroup", policy => policy.RequireClaim("permissions", "tickets:assign_to_group"));
-
     options.AddPolicy("RejectFromGroup", policy => policy.RequireClaim("permissions", "tickets:reject_from_group"));
     options.AddPolicy("DeleteTickets", policy => policy.RequireClaim("permissions", "tickets:delete"));
     options.AddPolicy("ClaimTickets", policy => policy.RequireClaim("permissions", "tickets:claim"));
     options.AddPolicy("AddComments", policy => policy.RequireClaim("permissions", "tickets:add_comment"));
 
-    // --- Users ---
+    // Policies cho Users
     options.AddPolicy("ReadUsers", policy => policy.RequireClaim("permissions", "users:read"));
     options.AddPolicy("ManageUsers", policy => policy.RequireClaim("permissions", "users:manage"));
     options.AddPolicy("DeleteUsers", policy => policy.RequireClaim("permissions", "users:delete"));
-    // THÊM POLICY MỚI
     options.AddPolicy("ManageUserRoles", policy => policy.RequireRole("Admin", "Manager"));
 
-    // --- Groups ---
+    // Policies cho Groups
     options.AddPolicy("ManageGroups", policy => policy.RequireClaim("permissions", "groups:manage"));
-    // === SỬA LỖI: THÊM POLICY MỚI ĐỂ XEM DANH SÁCH NHÓM ===
     options.AddPolicy("ViewGroups", policy => policy.RequireClaim("permissions", "groups:manage", "tickets:assign_to_group"));
+    options.AddPolicy("ReadGroupMembers", policy => policy.RequireClaim("permissions", "groups:manage", "groups:read_own_members"));
 
-    // --- Problem Types ---
+    // Policies cho Problem Types
     options.AddPolicy("ManageProblemTypes", policy => policy.RequireClaim("permissions", "problemtypes:manage"));
 
-    // --- Permissions ---
+    // Policies cho Permissions
     options.AddPolicy("RequestPermissions", policy => policy.RequireClaim("permissions", "permissions:request"));
     options.AddPolicy("ReviewPermissions", policy => policy.RequireClaim("permissions", "permissions:review"));
 });
 
-
-// Đăng ký Authorization Handlers và các dịch vụ cần thiết
+// Đăng ký các Authorization Handlers
 builder.Services.AddScoped<IAuthorizationHandler, TicketAuthorizationHandler>();
 builder.Services.AddScoped<IAuthorizationHandler, CommentAuthorizationHandler>();
 builder.Services.AddHttpContextAccessor();
 
-// Add SignalR
+// Đăng ký SignalR
 builder.Services.AddSignalR();
 
-// Add AutoMapper
+// Đăng ký AutoMapper
 builder.Services.AddAutoMapper(cfg => cfg.AddProfile<MappingProfile>());
 
-// Add FluentValidation validators from the Application assembly
+// Đăng ký các Validators của FluentValidation
 builder.Services.AddValidatorsFromAssembly(typeof(MappingProfile).Assembly);
 
-// === ĐĂNG KÝ SERVICE LAYER ===
-// Đăng ký các dịch vụ thật
-builder.Services.AddScoped<TicketService>(); // Đăng ký lớp cụ thể để decorator có thể lấy
+// Đăng ký các lớp dịch vụ (Service Layer)
+builder.Services.AddScoped<TicketService>(); // Lớp cụ thể để Decorator có thể lấy
 builder.Services.AddScoped<IFileStorageService, FileStorageService>();
 builder.Services.AddScoped<IAttachmentService, AttachmentService>();
 builder.Services.AddScoped<IAdminService, AdminService>();
 builder.Services.AddScoped<ICommentService, CommentService>();
 builder.Services.AddScoped<IGroupService, GroupService>();
 builder.Services.AddScoped<IPermissionRequestService, PermissionRequestService>();
-builder.Services.AddScoped<IProblemTypeService, ProblemTypeService>(); // Đăng ký service mới
+builder.Services.AddScoped<IProblemTypeService, ProblemTypeService>();
 
-// Sử dụng Decorator Pattern để bọc TicketService cho việc kiểm thử giao dịch
+// Áp dụng Decorator Pattern cho ITicketService để xử lý giao dịch trong chế độ test
 builder.Services.AddScoped<ITicketService>(provider =>
     new TransactionalTicketServiceDecorator(
-        provider.GetRequiredService<TicketService>(), // Lấy service thật
+        provider.GetRequiredService<TicketService>(),
         provider.GetRequiredService<ApplicationDbContext>(),
         provider.GetRequiredService<IHttpContextAccessor>()
     )
@@ -263,13 +240,11 @@ builder.Services.AddScoped<ITicketService>(provider =>
 
 Console.WriteLine(">>>> API is running in LIVE mode. Use 'X-Test-Mode' header for safe testing. <<<<");
 
-
 var app = builder.Build();
 
-// TỰ ĐỘNG MIGRATE VÀ SEED DATABASE KHI CHẠY Ở MÔI TRƯỜNG DEVELOPMENT
+// Tự động migrate và seed database khi chạy ở môi trường Development
 if (app.Environment.IsDevelopment())
 {
-    // Đảm bảo thư mục lưu trữ tồn tại
     var attachmentsDir = Path.Combine(app.Environment.ContentRootPath, "wwwroot", attachmentSettings.StoragePath);
     if (!Directory.Exists(attachmentsDir))
     {
@@ -285,11 +260,8 @@ if (app.Environment.IsDevelopment())
             var userManager = services.GetRequiredService<UserManager<ApplicationUser>>();
             var roleManager = services.GetRequiredService<RoleManager<IdentityRole>>();
 
-            // Đổi tên vai trò cũ "Technician" thành "Agent"
             await DataSeeder.MigrateRoles(roleManager);
             await context.Database.MigrateAsync();
-
-            // Sửa đổi ở đây: truyền toàn bộ service provider
             await DataSeeder.SeedAsync(services);
         }
         catch (Exception ex)
@@ -300,7 +272,7 @@ if (app.Environment.IsDevelopment())
     }
 }
 
-// Configure the HTTP request pipeline.
+// Cấu hình pipeline xử lý HTTP request
 if (app.Environment.IsDevelopment())
 {
     app.UseSwagger();
@@ -310,14 +282,16 @@ if (app.Environment.IsDevelopment())
     });
 }
 
-// Use Custom Exception Handler Middleware
+// Sử dụng Middleware xử lý ngoại lệ tùy chỉnh
 app.UseMiddleware<ExceptionHandlerMiddleware>();
 
 app.UseCors("AllowReactApp");
 app.UseHttpsRedirection();
 app.UseStaticFiles();
+
 app.UseAuthentication();
 app.UseAuthorization();
+
 app.MapControllers();
 app.MapHub<TicketHub>("/ticketHub");
 

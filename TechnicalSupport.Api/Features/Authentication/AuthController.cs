@@ -13,6 +13,9 @@ using TechnicalSupport.Domain.Entities;
 
 namespace TechnicalSupport.Api.Features.Authentication
 {
+    /// <summary>
+    /// Xử lý các yêu cầu đăng ký và đăng nhập người dùng.
+    /// </summary>
     [ApiController]
     [Route("[controller]")]
     public class AuthController : ControllerBase
@@ -21,6 +24,9 @@ namespace TechnicalSupport.Api.Features.Authentication
         private readonly SignInManager<ApplicationUser> _signInManager;
         private readonly JwtSettings _jwtSettings;
 
+        /// <summary>
+        /// Khởi tạo một instance mới của AuthController.
+        /// </summary>
         public AuthController(
             UserManager<ApplicationUser> userManager,
             SignInManager<ApplicationUser> signInManager,
@@ -31,6 +37,11 @@ namespace TechnicalSupport.Api.Features.Authentication
             _jwtSettings = jwtSettings;
         }
 
+        /// <summary>
+        /// Đăng ký một tài khoản người dùng mới.
+        /// </summary>
+        /// <param name="model">Thông tin đăng ký của người dùng.</param>
+        /// <returns>Thông báo đăng ký thành công hoặc danh sách lỗi.</returns>
         [HttpPost("register")]
         [SwaggerRequestExample(typeof(RegisterModel), typeof(RegisterModelExample))]
         public async Task<IActionResult> Register([FromBody] RegisterModel model)
@@ -55,6 +66,11 @@ namespace TechnicalSupport.Api.Features.Authentication
             return Ok(ApiResponse.Success<object>(null, "User registered successfully."));
         }
 
+        /// <summary>
+        /// Đăng nhập vào hệ thống và nhận về một JWT token.
+        /// </summary>
+        /// <param name="model">Thông tin đăng nhập (email và mật khẩu).</param>
+        /// <returns>Một đối tượng chứa JWT token nếu đăng nhập thành công.</returns>
         [HttpPost("login")]
         [SwaggerRequestExample(typeof(LoginModel), typeof(LoginModelExample))]
         public async Task<IActionResult> Login([FromBody] LoginModel model)
@@ -79,6 +95,12 @@ namespace TechnicalSupport.Api.Features.Authentication
             return Ok(ApiResponse.Success(response, "Login successful."));
         }
 
+        /// <summary>
+        /// Tạo một JWT token cho người dùng đã được xác thực.
+        /// </summary>
+        /// <param name="user">Đối tượng người dùng.</param>
+        /// <param name="roles">Danh sách vai trò của người dùng.</param>
+        /// <returns>Chuỗi JWT token.</returns>
         private string GenerateJwtToken(ApplicationUser user, IList<string> roles)
         {
             var claims = new List<Claim>
@@ -94,7 +116,7 @@ namespace TechnicalSupport.Api.Features.Authentication
                 claims.Add(new Claim(ClaimTypes.Role, role));
             }
 
-            // Thêm claim permissions dựa trên roles
+            // Thêm các claim về quyền hạn (permissions) dựa trên vai trò của người dùng.
             var permissions = GetPermissionsForRoles(roles);
             foreach (var permission in permissions)
             {
@@ -115,11 +137,16 @@ namespace TechnicalSupport.Api.Features.Authentication
             return new JwtSecurityTokenHandler().WriteToken(token);
         }
 
+        /// <summary>
+        /// Lấy một tập hợp các quyền (permissions) dựa trên danh sách vai trò của người dùng.
+        /// Đây là nơi định nghĩa tập quyền cho từng vai trò trong hệ thống.
+        /// </summary>
+        /// <param name="roles">Danh sách vai trò của người dùng.</param>
+        /// <returns>Một HashSet chứa các chuỗi permission duy nhất.</returns>
         private static HashSet<string> GetPermissionsForRoles(IEnumerable<string> roles)
         {
             var permissions = new HashSet<string>();
 
-            // --- QUYỀN CỦA CLIENT ---
             if (roles.Contains("Client"))
             {
                 permissions.Add("tickets:create");
@@ -127,8 +154,6 @@ namespace TechnicalSupport.Api.Features.Authentication
                 permissions.Add("tickets:add_comment");
             }
 
-            // --- QUYỀN CỦA AGENT ---
-            // Agent cũng là một client (có thể tự tạo ticket cho mình)
             if (roles.Contains("Agent"))
             {
                 permissions.Add("tickets:create");
@@ -140,16 +165,14 @@ namespace TechnicalSupport.Api.Features.Authentication
                 permissions.Add("permissions:request");
             }
 
-            // --- QUYỀN CỦA GROUP MANAGER ---
-            // Group Manager là một Agent với quyền bổ sung
             if (roles.Contains("Group Manager"))
             {
                 permissions.Add("tickets:read_group");
                 permissions.Add("tickets:assign_to_member");
                 permissions.Add("tickets:reject_from_group");
+                permissions.Add("groups:read_own_members");
             }
 
-            // --- QUYỀN CỦA USER MANAGER (VAI TRÒ CŨ: MANAGER) ---
             if (roles.Contains("Manager"))
             {
                 permissions.Add("users:manage");
@@ -157,35 +180,29 @@ namespace TechnicalSupport.Api.Features.Authentication
                 permissions.Add("groups:manage");
                 permissions.Add("permissions:review");
             }
-
-            // --- QUYỀN CỦA TICKET MANAGER ---
-            // Ticket Manager là vai trò song song với Agent.
+            
             if (roles.Contains("Ticket Manager"))
             {
-                // Quyền cơ bản của một người dùng
                 permissions.Add("tickets:create");
                 permissions.Add("tickets:read_own");
                 permissions.Add("tickets:add_comment");
-
-                // Quyền quản lý ticket
                 permissions.Add("tickets:read_queue");
                 permissions.Add("tickets:read_all");
                 permissions.Add("tickets:assign_to_group");
                 permissions.Add("tickets:update_status");
                 permissions.Add("problemtypes:manage");
             }
-
-            // --- ADMIN KẾ THỪA TẤT CẢ ---
+            
             if (roles.Contains("Admin"))
             {
-                // Gán tất cả các quyền đã biết một cách tường minh để đảm bảo an toàn và rõ ràng
+                // Admin kế thừa tất cả các quyền đã định nghĩa.
                 permissions.UnionWith(new string[]
                 {
                     "tickets:create", "tickets:read_own", "tickets:read_queue", "tickets:update_status",
                     "tickets:add_comment", "tickets:claim", "permissions:request", "tickets:read_group",
                     "tickets:assign_to_member", "tickets:reject_from_group", "users:manage", "users:read",
                     "groups:manage", "permissions:review", "tickets:read_all", "tickets:assign_to_group",
-                    "problemtypes:manage", "users:delete", "tickets:delete"
+                    "problemtypes:manage", "users:delete", "tickets:delete", "groups:read_own_members"
                 });
             }
 

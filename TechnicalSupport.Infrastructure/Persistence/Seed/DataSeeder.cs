@@ -8,10 +8,16 @@ using TechnicalSupport.Domain.Entities;
 
 namespace TechnicalSupport.Infrastructure.Persistence.Seed
 {
+    /// <summary>
+    /// Cung cấp các phương thức tĩnh để khởi tạo dữ liệu mẫu cho cơ sở dữ liệu.
+    /// </summary>
     public static class DataSeeder
     {
         private static readonly Random Rng = new Random();
 
+        /// <summary>
+        /// Di chuyển vai trò cũ "Technician" sang vai trò mới "Agent" để đảm bảo tính tương thích ngược.
+        /// </summary>
         public static async Task MigrateRoles(RoleManager<IdentityRole> roleManager)
         {
             var oldRole = await roleManager.FindByNameAsync("Technician");
@@ -25,27 +31,28 @@ namespace TechnicalSupport.Infrastructure.Persistence.Seed
             }
         }
 
+        /// <summary>
+        /// Phương thức chính để thực hiện việc seed dữ liệu.
+        /// Nó sẽ seed các dữ liệu nền tảng (vai trò, trạng thái, nhóm) và chỉ seed dữ liệu người dùng/ticket nếu database trống.
+        /// </summary>
+        /// <param name="serviceProvider">Đối tượng IServiceProvider để resolve các dịch vụ cần thiết.</param>
         public static async Task SeedAsync(IServiceProvider serviceProvider)
         {
-            // Resolve services from the provider
             var context = serviceProvider.GetRequiredService<ApplicationDbContext>();
             var userManager = serviceProvider.GetRequiredService<UserManager<ApplicationUser>>();
             var roleManager = serviceProvider.GetRequiredService<RoleManager<IdentityRole>>();
             var fileStorageService = serviceProvider.GetRequiredService<IFileStorageService>();
 
-            // --- Seed foundational data ---
+            // 1. Seed dữ liệu nền tảng (luôn chạy)
             await SeedRolesAsync(roleManager);
             await SeedStatusesAsync(context);
             await SeedGroupsAsync(context);
             await SeedProblemTypesAsync(context);
 
-            // --- Seed entity data only if there are no users ---
+            // 2. Seed dữ liệu nghiệp vụ (chỉ khi chưa có người dùng nào)
             if (!await userManager.Users.AnyAsync())
             {
-                // Create Users
                 var (clients, agents, managers) = await SeedUsersAsync(userManager, context);
-
-                // Create Tickets, Comments, and Attachments
                 await SeedTicketsAndRelatedDataAsync(context, fileStorageService, clients, agents, managers);
             }
         }
@@ -116,14 +123,12 @@ namespace TechnicalSupport.Infrastructure.Persistence.Seed
             var firstNames = new[] { "Linh", "An", "Bao", "Chau", "Dung", "Giang", "Hieu", "Khanh", "Mai", "Nam" };
             var lastNames = new[] { "Nguyen", "Tran", "Le", "Pham", "Hoang", "Huynh", "Phan", "Vu", "Vo", "Dang" };
             
-            // 1. Tạo các Manager và Admin
             var managers = new List<ApplicationUser>();
             var admin = await CreateUserAsync(userManager, "admin@example.com", "System Admin", "All", new[] { "Admin" });
             var userManagerUser = await CreateUserAsync(userManager, "usermanager@example.com", "HR Manager", "User Management", new[] { "Manager" });
             var ticketManager = await CreateUserAsync(userManager, "ticketmanager@example.com", "Triage Manager", "Triage", new[] { "Ticket Manager", "Agent" });
             managers.AddRange(new[] { admin, userManagerUser, ticketManager });
 
-            // 2. Tạo Group Manager cho mỗi nhóm
             var allGroups = await context.Groups.ToListAsync();
             var agents = new List<ApplicationUser>();
             int groupManagerCounter = 1;
@@ -131,27 +136,24 @@ namespace TechnicalSupport.Infrastructure.Persistence.Seed
             {
                 var groupManager = await CreateUserAsync(userManager, $"group.manager{groupManagerCounter++}@example.com", $"{group.Name} Lead", "Team Lead", new[] { "Group Manager", "Agent" });
                 await AddUserToGroupAsync(context, groupManager.Id, group.GroupId);
-                agents.Add(groupManager); // Group Manager cũng là một Agent
+                agents.Add(groupManager);
                 managers.Add(groupManager);
             }
 
-            // 3. Tạo các Agent thông thường và gán vào nhóm
             var expertises = new[] { "Hardware", "Software", "Networking", "Database", "Security" };
             for (int i = 0; i < 20; i++) 
             {
                 var expertise = expertises[Rng.Next(expertises.Length)];
                 var user = await CreateUserAsync(userManager, $"agent{i+1}@example.com", $"{lastNames[Rng.Next(lastNames.Length)]} {firstNames[Rng.Next(firstNames.Length)]}", expertise, new[] { "Agent" });
                 agents.Add(user);
-                // Gán agent vào 1 hoặc 2 nhóm ngẫu nhiên
                 await AddUserToGroupAsync(context, user.Id, allGroups[Rng.Next(allGroups.Count)].GroupId);
-                 if (Rng.Next(0, 5) == 0) // 20% chance to be in a second group
+                 if (Rng.Next(0, 5) == 0)
                 {
                     await AddUserToGroupAsync(context, user.Id, allGroups[Rng.Next(allGroups.Count)].GroupId);
                 }
             }
-            agents.Add(ticketManager); // Ticket Manager cũng là một agent
+            agents.Add(ticketManager);
 
-            // 4. Tạo các Client
             var clients = new List<ApplicationUser>();
             var defaultClient = await CreateUserAsync(userManager, "client@example.com", "Default Client", null, new[] { "Client" });
             clients.Add(defaultClient);
@@ -193,8 +195,7 @@ namespace TechnicalSupport.Infrastructure.Persistence.Seed
                     UpdatedAt = DateTime.UtcNow.AddDays(-Rng.Next(0, 30))
                 };
                 
-                // Assign agent if ticket has a group and is not closed/resolved
-                if(ticket.GroupId.HasValue && status.Name != "Closed" && status.Name != "Resolved" && Rng.Next(0,2) == 0) // 50% chance
+                if(ticket.GroupId.HasValue && status.Name != "Closed" && status.Name != "Resolved" && Rng.Next(0,2) == 0)
                 {
                      var agentsInGroup = await context.TechnicianGroups
                         .Where(tg => tg.GroupId == ticket.GroupId.Value)
@@ -213,7 +214,6 @@ namespace TechnicalSupport.Infrastructure.Persistence.Seed
             await context.Tickets.AddRangeAsync(ticketsToCreate);
             await context.SaveChangesAsync();
 
-            // Add Comments and Attachments
             foreach (var ticket in ticketsToCreate)
             {
                 int commentCount = Rng.Next(0, 6);
@@ -230,7 +230,7 @@ namespace TechnicalSupport.Infrastructure.Persistence.Seed
                     context.Comments.Add(comment);
                 }
 
-                if (Rng.Next(0, 10) == 0) // 10% chance to have an attachment
+                if (Rng.Next(0, 10) == 0)
                 {
                     await CreateAttachmentAsync(fileStorage, context, ticket.TicketId, ticket.CustomerId);
                 }
@@ -238,7 +238,6 @@ namespace TechnicalSupport.Infrastructure.Persistence.Seed
             await context.SaveChangesAsync();
         }
 
-        // --- Helper Methods ---
         private static async Task<ApplicationUser> CreateUserAsync(UserManager<ApplicationUser> userManager, string email, string displayName, string? expertise, string[] roles)
         {
             var user = new ApplicationUser { UserName = email, Email = email, DisplayName = displayName, Expertise = expertise, EmailConfirmed = true };
@@ -259,7 +258,7 @@ namespace TechnicalSupport.Infrastructure.Persistence.Seed
         
         private static async Task CreateAttachmentAsync(IFileStorageService fileStorage, ApplicationDbContext context, int ticketId, string uploaderId)
         {
-            string content = $"Log file for ticket {ticketId}\nTimestamp: {DateTime.UtcNow}\nRandom data: {Guid.NewGuid()}\nEnd of log.";
+            string content = $"Log file for ticket {ticketId}\nTimestamp: {DateTime.Now}\nRandom data: {Guid.NewGuid()}\nEnd of log.";
             var stream = new MemoryStream(Encoding.UTF8.GetBytes(content));
             
             var fileDto = new FileContentDto

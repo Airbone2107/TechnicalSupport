@@ -7,6 +7,9 @@ using TechnicalSupport.Application.Features.Tickets.DTOs;
 
 namespace TechnicalSupport.Api.Features.Comments
 {
+    /// <summary>
+    /// Cung cấp các endpoint để quản lý các bình luận riêng lẻ.
+    /// </summary>
     [ApiController]
     [Route("[controller]")]
     [Authorize(Policy = "RequireAuthenticatedUser")]
@@ -14,11 +17,19 @@ namespace TechnicalSupport.Api.Features.Comments
     {
         private readonly ICommentService _commentService;
 
+        /// <summary>
+        /// Khởi tạo một instance mới của CommentsController.
+        /// </summary>
         public CommentsController(ICommentService commentService)
         {
             _commentService = commentService;
         }
 
+        /// <summary>
+        /// Lấy thông tin chi tiết của một bình luận theo ID.
+        /// </summary>
+        /// <param name="id">ID của bình luận.</param>
+        /// <returns>Thông tin chi tiết của bình luận.</returns>
         [HttpGet("{id}")]
         public async Task<IActionResult> GetComment(int id)
         {
@@ -30,6 +41,12 @@ namespace TechnicalSupport.Api.Features.Comments
             return Ok(ApiResponse.Success(commentDto));
         }
 
+        /// <summary>
+        /// Cập nhật nội dung của một bình luận.
+        /// </summary>
+        /// <param name="id">ID của bình luận cần cập nhật.</param>
+        /// <param name="model">Dữ liệu mới cho bình luận.</param>
+        /// <returns>Thông tin bình luận sau khi đã cập nhật.</returns>
         [HttpPut("{id}")]
         public async Task<IActionResult> UpdateComment(int id, [FromBody] UpdateCommentModel model)
         {
@@ -48,6 +65,11 @@ namespace TechnicalSupport.Api.Features.Comments
             }
         }
 
+        /// <summary>
+        /// Xóa một bình luận.
+        /// </summary>
+        /// <param name="id">ID của bình luận cần xóa.</param>
+        /// <returns>Thông báo thành công.</returns>
         [HttpDelete("{id}")]
         public async Task<IActionResult> DeleteComment(int id)
         {

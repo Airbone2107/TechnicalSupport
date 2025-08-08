@@ -18,7 +18,7 @@ namespace TechnicalSupport.Infrastructure.Persistence
         public DbSet<Status> Statuses { get; set; }
         public DbSet<PermissionRequest> PermissionRequests { get; set; }
         public DbSet<TemporaryPermission> TemporaryPermissions { get; set; }
-        public DbSet<ProblemType> ProblemTypes { get; set; } // Thêm DbSet mới
+        public DbSet<ProblemType> ProblemTypes { get; set; }
 
         protected override void OnModelCreating(ModelBuilder builder)
         {
@@ -28,15 +28,16 @@ namespace TechnicalSupport.Infrastructure.Persistence
             builder.Entity<Group>().HasIndex(g => g.Name).IsUnique();
             builder.Entity<Status>().HasIndex(s => s.Name).IsUnique();
             builder.Entity<TemporaryPermission>().HasIndex(tp => new { tp.UserId, tp.ClaimType, tp.ClaimValue });
-            builder.Entity<ProblemType>().HasIndex(p => p.Name).IsUnique(); // Thêm index cho ProblemType
+            builder.Entity<ProblemType>().HasIndex(p => p.Name).IsUnique();
 
-            // Mặc định: Không xóa xếp tầng từ ApplicationUser. Việc xóa người dùng phải do AdminService xử lý.
+            // Cấu hình DeleteBehavior.Restrict cho ApplicationUser làm mặc định để tránh xóa tầng không mong muốn.
+            // Việc xóa người dùng phức tạp phải được xử lý tường minh trong AdminService.
             foreach (var fk in builder.Model.GetEntityTypes().SelectMany(e => e.GetForeignKeys()).Where(fk => fk.PrincipalEntityType.ClrType == typeof(ApplicationUser)))
             {
                 fk.DeleteBehavior = DeleteBehavior.Restrict;
             }
             
-            // Xóa Ticket sẽ xóa các Comment và Attachment liên quan
+            // Cấu hình DeleteBehavior.Cascade để khi một Ticket bị xóa, các Comment và Attachment liên quan cũng bị xóa theo.
             builder.Entity<Ticket>()
                 .HasMany(t => t.Comments)
                 .WithOne(c => c.Ticket)
@@ -49,22 +50,21 @@ namespace TechnicalSupport.Infrastructure.Persistence
                 .HasForeignKey(a => a.TicketId)
                 .OnDelete(DeleteBehavior.Cascade);
 
-            // SỬA LỖI: Thay đổi quy tắc xóa cho Comment -> Attachment
-            // để phá vỡ chuỗi cascade delete.
-            // Hành vi mặc định sẽ là Restrict (NO ACTION), ngăn việc xóa Comment
-            // nếu nó vẫn còn Attachment liên quan.
+            // Phá vỡ chuỗi cascade delete: Ngăn việc xóa một Comment nếu nó vẫn còn Attachment.
+            // Điều này đảm bảo file vật lý không bị mồ côi.
             builder.Entity<Comment>()
-                .HasMany<Attachment>() // Một comment có nhiều attachment
+                .HasMany<Attachment>()
                 .WithOne(a => a.Comment) 
                 .HasForeignKey(a => a.CommentId)
                 .IsRequired(false) 
-                .OnDelete(DeleteBehavior.Restrict); // THAY ĐỔI TỪ Cascade -> Restrict
+                .OnDelete(DeleteBehavior.Restrict);
 
+            // Khi một Agent/Group bị xóa/hủy gán, chỉ cần set khóa ngoại trong Ticket thành null thay vì xóa Ticket.
             builder.Entity<Ticket>().HasOne(t => t.Assignee).WithMany().HasForeignKey(t => t.AssigneeId).OnDelete(DeleteBehavior.SetNull);
             builder.Entity<Ticket>().HasOne(t => t.Group).WithMany().HasForeignKey(t => t.GroupId).OnDelete(DeleteBehavior.SetNull);
-            builder.Entity<Ticket>().HasOne(t => t.ProblemType).WithMany().HasForeignKey(t => t.ProblemTypeId).OnDelete(DeleteBehavior.SetNull); // Thêm quan hệ cho Ticket và ProblemType
+            builder.Entity<Ticket>().HasOne(t => t.ProblemType).WithMany().HasForeignKey(t => t.ProblemTypeId).OnDelete(DeleteBehavior.SetNull);
 
-            // Khi một Group bị xóa, set GroupId trong ProblemType thành NULL
+            // Khi một Group bị xóa, set GroupId trong ProblemType thành NULL.
             builder.Entity<ProblemType>()
                 .HasOne(p => p.Group)
                 .WithMany()

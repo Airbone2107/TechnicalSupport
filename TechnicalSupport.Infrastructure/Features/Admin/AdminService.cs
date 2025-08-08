@@ -1,6 +1,8 @@
 using AutoMapper;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
+using System.Security.Claims;
 using TechnicalSupport.Application.Common;
 using TechnicalSupport.Application.Features.Admin.Abstractions;
 using TechnicalSupport.Application.Features.Admin.DTOs;
@@ -15,14 +17,23 @@ namespace TechnicalSupport.Infrastructure.Features.Admin
         private readonly UserManager<ApplicationUser> _userManager;
         private readonly RoleManager<IdentityRole> _roleManager;
         private readonly IMapper _mapper;
+        private readonly IHttpContextAccessor _httpContextAccessor;
 
-        public AdminService(ApplicationDbContext context, UserManager<ApplicationUser> userManager, RoleManager<IdentityRole> roleManager, IMapper mapper)
+        public AdminService(
+            ApplicationDbContext context, 
+            UserManager<ApplicationUser> userManager, 
+            RoleManager<IdentityRole> roleManager, 
+            IMapper mapper, 
+            IHttpContextAccessor httpContextAccessor)
         {
             _context = context;
             _userManager = userManager;
             _roleManager = roleManager;
             _mapper = mapper;
+            _httpContextAccessor = httpContextAccessor;
         }
+        
+        private string GetCurrentUserId() => _httpContextAccessor.HttpContext.User.FindFirstValue(ClaimTypes.NameIdentifier);
 
         public async Task<PagedResult<UserDetailDto>> GetUsersAsync(UserFilterParams filterParams)
         {
@@ -94,6 +105,20 @@ namespace TechnicalSupport.Infrastructure.Features.Admin
 
         public async Task<(bool Success, string Message)> UpdateUserRolesAsync(string userId, UpdateUserRolesModel model)
         {
+            // Xác thực mật khẩu người dùng hiện tại
+            var currentUserId = GetCurrentUserId();
+            var currentUser = await _userManager.FindByIdAsync(currentUserId);
+            if (currentUser == null)
+            {
+                return (false, "Cannot identify the current administrator.");
+            }
+
+            var isPasswordCorrect = await _userManager.CheckPasswordAsync(currentUser, model.CurrentPassword);
+            if (!isPasswordCorrect)
+            {
+                return (false, "Mật khẩu xác thực không đúng.");
+            }
+
             var user = await _userManager.FindByIdAsync(userId);
             if (user == null)
             {
